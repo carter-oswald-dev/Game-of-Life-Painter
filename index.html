@@ -3,219 +3,403 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Life Writer</title>
+<title>Game of Life Painter</title>
 <style>
-  :root { --bg:#0e0f12; --panel:#17191e; --line:#2a2d35; --text:#e6e6e6; --dim:#8a8f99; --cell:#7CFFB2; --accent:#7CFFB2; --bad:#ff6b6b; }
+  :root { --bg:#0e0f12; --panel:#17191e; --line:#2a2d35; --text:#e6e6e6; --dim:#8a8f99; --accent:#7CFFB2; --bad:#ff6b6b; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; }
-  main { max-width:960px; margin:0 auto; padding:20px 16px 40px; }
+  main { max-width:1000px; margin:0 auto; padding:20px 16px 40px; }
   h1 { font-size:22px; margin:0 0 4px; letter-spacing:.5px; }
   .sub { color:var(--dim); margin:0 0 16px; }
-  textarea { width:100%; min-height:96px; background:var(--panel); color:var(--text); border:1px solid var(--line);
-    border-radius:8px; padding:10px; font:16px/1.4 ui-monospace, Menlo, Consolas, monospace; resize:vertical; text-transform:uppercase; }
-  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:10px 0; }
-  button { background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:8px; padding:8px 12px;
-    font:inherit; cursor:pointer; }
+  .tabs { display:flex; gap:4px; margin-bottom:-1px; }
+  .tab { background:transparent; border:1px solid transparent; border-bottom:none; border-radius:8px 8px 0 0; padding:8px 18px; color:var(--dim); }
+  .tab.on { background:var(--panel); border-color:var(--line); color:var(--text); }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:0 8px 8px 8px; padding:14px; }
+  .panel[hidden] { display:none; }
+  textarea { width:100%; min-height:96px; background:#0b0c0f; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:10px;
+    font:16px/1.4 ui-monospace, Menlo, Consolas, monospace; resize:vertical; text-transform:uppercase; }
+  .row { display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; margin:10px 0; }
+  button, select { background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:8px; padding:8px 12px; font:inherit; cursor:pointer; }
+  select { padding:6px 8px; }
   button:hover { border-color:var(--accent); }
-  select { background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:8px; padding:6px 8px; font:inherit; }
   button.primary { background:var(--accent); color:#0b0c0e; border-color:var(--accent); font-weight:600; }
   label { color:var(--dim); display:flex; gap:6px; align-items:center; }
-  .stage { background:#000; border:1px solid var(--line); border-radius:8px; overflow:auto; padding:8px; }
-  canvas { display:block; image-rendering:pixelated; margin:auto; }
+  input[type=range] { width:110px; }
+  .drop { display:flex; gap:14px; align-items:center; flex-wrap:wrap; border:1px dashed transparent; border-radius:8px; }
+  .drop.over { border-color:var(--accent); }
+  #preview { image-rendering:pixelated; background:#000; border:1px solid var(--line); border-radius:4px; max-width:160px; max-height:120px; }
+  .stage { background:#000; border:1px solid var(--line); border-radius:8px; padding:8px; overflow:auto; }
+  #cv { display:block; image-rendering:pixelated; margin:auto; max-width:100%; }
   .status { font:13px ui-monospace, Menlo, monospace; color:var(--dim); }
   .ok { color:var(--accent); } .err { color:var(--bad); }
+  .help { color:var(--dim); font-size:14px; }
   details { margin-top:16px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
   summary { cursor:pointer; }
-  pre { white-space:pre-wrap; word-break:break-all; font:12px/1.3 ui-monospace, Menlo, monospace; max-height:200px; overflow:auto;
-    background:#000; padding:8px; border-radius:6px; }
-  .help { color:var(--dim); font-size:14px; }
+  pre { white-space:pre-wrap; word-break:break-all; font:12px/1.3 ui-monospace, Menlo, monospace; max-height:180px; overflow:auto; background:#000; padding:8px; border-radius:6px; }
+  .tiles { display:flex; gap:18px; flex-wrap:wrap; margin-top:8px; }
+  .tiles canvas { image-rendering:pixelated; width:110px; height:110px; border:1px solid var(--line); }
+  .tiles figure { margin:0; text-align:center; color:var(--dim); font-size:13px; }
 </style>
 </head>
 <body>
 <main>
-  <h1>Life Writer</h1>
-  <p class="sub">Type text. It becomes Conway's Game of Life noise that spells your message after exactly <b id="nGen"></b> generations.</p>
+  <h1>Game of Life Painter</h1>
+  <p class="sub">Turn text or a picture into Conway's Game of Life noise that becomes your text or picture after exactly <b class="nGen">2</b> generations.</p>
 
-  <textarea id="txt" spellcheck="false">HELLO
+  <div class="tabs">
+    <button class="tab on" data-tab="text">Text</button>
+    <button class="tab" data-tab="image">Image</button>
+  </div>
+  <section class="panel" id="p-text">
+    <textarea id="txt" spellcheck="false">HELLO
 WORLD!</textarea>
+  </section>
+  <section class="panel" id="p-image" hidden>
+    <div class="drop" id="drop">
+      <canvas id="preview"></canvas>
+      <div>
+        <div class="row" style="margin:0 0 8px">
+          <button id="pick">Choose image…</button>
+          <input type="file" id="file" accept="image/*" hidden>
+          <span class="help">or drop / paste an image here</span>
+        </div>
+        <div class="row" style="margin:0">
+          <label>Width <input type="range" id="width" min="8" max="160" value="32"> <span id="wv">32</span> px</label>
+          <label>Dither <select id="dither">
+            <option value="fs">Floyd–Steinberg</option><option value="atk">Atkinson</option>
+            <option value="bayer">Ordered (Bayer)</option><option value="thr">Threshold</option></select></label>
+          <label>Level <input type="range" id="level" min="0" max="255" value="128"></label>
+          <label><input type="checkbox" id="invert"> Invert</label>
+        </div>
+      </div>
+    </div>
+  </section>
 
   <div class="row">
+    <label>Style <select id="style"><option value="solid">Solid</option><option value="blink">Blinking (never fades)</option></select></label>
+    <label>Generations <select id="gens"><option value="2">2</option><option value="3">3</option></select></label>
     <button class="primary" id="build">Scramble</button>
     <button id="play">▶ Play</button>
     <button id="step">Step</button>
     <button id="reset">Back to seed</button>
-    <label>Mode <select id="mode"><option value="plain">Plain text</option><option value="blink">Blinker text (never fades)</option></select></label>
     <label><input type="checkbox" id="pause" checked> Pause on reveal</label>
-    <label>Speed <input type="range" id="speed" min="1" max="20" value="4"></label>
+    <label>Speed <input type="range" id="speed" min="1" max="30" value="4"></label>
   </div>
+  <p class="help" id="note" hidden></p>
 
   <div class="stage"><canvas id="cv"></canvas></div>
-  <div class="row status"><span id="gen">gen 0</span> · <span id="check"></span></div>
+  <div class="row status"><span id="gen">gen 0</span> · <span id="size"></span> · <span id="check"></span></div>
 
   <details open>
     <summary>Export seed (RLE)</summary>
-    <p class="help">Paste into Golly, LifeViewer, or any Life simulator that accepts RLE. Use an unbounded (or large) board, not a small wrap-around one, and step exactly <span id="nGen2"></span> generations.</p>
-    <div class="row"><button id="copy">Copy RLE</button><button id="dl">Download .rle</button></div>
+    <p class="help">Paste into Golly, LifeViewer or any simulator that takes RLE. Use an unbounded (or big enough) board, not a small wrap-around one, and step exactly <b class="nGen">2</b> generations. Large pictures make big files, so Download is easier than Copy for those.</p>
+    <div class="row"><button id="copy">Copy RLE</button><button id="dl">Download .rle</button><span class="help" id="rlesize"></span></div>
     <pre id="rle"></pre>
   </details>
 
   <details>
     <summary>How it works</summary>
-    <p class="help">Every character has precomputed starting patterns (found with a SAT solver) that evolve into its 5×7 letter.
-    In blinker mode every letter pixel is a blinker (a 3-cell oscillator), so the text flips between horizontal and vertical dashes forever instead of dissolving.
-    Each pattern sits in its own box with a 1-cell border that is forced to stay dead in <i>every</i> generation, so neighbouring
-    letters can never influence each other. The page re-runs the result itself after every scramble and checks it cell for cell.
-    Supported: A–Z (lowercase shows as uppercase), 0–9, space and <span id="punct"></span>. Anything else becomes "?".
-    After the reveal, the text keeps evolving like any other pattern.</p>
+    <p class="help"><b>Text:</b> every character has starting patterns, found ahead of time with a SAT solver, that grow into its 5×7 letter. Each one sits in its own box with a 1-cell border that stays dead in every generation, so neighbouring letters can't influence each other.
+    In Blinking style every letter pixel is a blinker (a 3-cell oscillator), so the text keeps flipping between horizontal and vertical dashes forever.
+    Supported: A–Z (lowercase shows as uppercase), 0–9, space and <span id="punct"></span>. Anything else becomes "?". Text is available at 2 generations.</p>
+    <p class="help"><b>Image:</b> every picture pixel is a tile. There are only two kinds, <b>filled</b> and <b>empty</b>, each with 32 different seeds picked at random, so the noise has no repeating texture.
+    Solid style: an 8×8 tile becomes a solid 5×5 square or dies out. Blinking style: a 10×10 tile becomes four blinkers or dies out, and the blinkers flip forever.
+    Filled and empty seeds have the same number of live cells, with the same amount near the centre, so you can't see the picture in the noise.</p>
+    <p class="help">Neighbouring tiles share a 1-cell dead gutter. Every seed keeps its corner cells dead, and in every generation each gutter cell touches at most one of its live cells.
+    Two tiles together can therefore give a gutter cell at most 2 neighbours, which is never enough for a birth (that needs exactly 3), so tiles can't affect each other.
+    In Solid style that guarantee ends at the reveal and the picture breaks up afterwards. The blinkers obey the same rule in both of their phases, so a Blinking picture never breaks up.
+    After every scramble the page re-runs the seed itself and checks it cell for cell.</p>
+    <div class="tiles" id="tileDemo">
+      <figure><canvas id="tf"></canvas><figcaption>a filled seed</figcaption></figure>
+      <figure><canvas id="tfr"></canvas><figcaption>…at the reveal</figcaption></figure>
+      <figure><canvas id="te"></canvas><figcaption>an empty seed</figcaption></figure>
+      <figure><canvas id="ter"></canvas><figcaption>…at the reveal</figcaption></figure>
+    </div>
   </details>
 </main>
 
 <script>
-const DATA = {"font":{"A":[".###.","#...#","#...#","#####","#...#","#...#","#...#"],"B":["####.","#...#","#...#","####.","#...#","#...#","####."],"C":[".###.","#...#","#....","#....","#....","#...#",".###."],"D":["####.","#...#","#...#","#...#","#...#","#...#","####."],"E":["#####","#....","#....","####.","#....","#....","#####"],"F":["#####","#....","#....","####.","#....","#....","#...."],"G":[".###.","#...#","#....","#.###","#...#","#...#",".####"],"H":["#...#","#...#","#...#","#####","#...#","#...#","#...#"],"I":[".###.","..#..","..#..","..#..","..#..","..#..",".###."],"J":["..###","...#.","...#.","...#.","...#.","#..#.",".##.."],"K":["#...#","#..#.","#.#..","##...","#.#..","#..#.","#...#"],"L":["#....","#....","#....","#....","#....","#....","#####"],"M":["#...#","##.##","#.#.#","#.#.#","#...#","#...#","#...#"],"N":["#...#","#...#","##..#","#.#.#","#..##","#...#","#...#"],"O":[".###.","#...#","#...#","#...#","#...#","#...#",".###."],"P":["####.","#...#","#...#","####.","#....","#....","#...."],"Q":[".###.","#...#","#...#","#...#","#.#.#","#..#.",".##.#"],"R":["####.","#...#","#...#","####.","#.#..","#..#.","#...#"],"S":[".####","#....","#....",".###.","....#","....#","####."],"T":["#####","..#..","..#..","..#..","..#..","..#..","..#.."],"U":["#...#","#...#","#...#","#...#","#...#","#...#",".###."],"V":["#...#","#...#","#...#","#...#","#...#",".#.#.","..#.."],"W":["#...#","#...#","#...#","#.#.#","#.#.#","#.#.#",".#.#."],"X":["#...#","#...#",".#.#.","..#..",".#.#.","#...#","#...#"],"Y":["#...#","#...#",".#.#.","..#..","..#..","..#..","..#.."],"Z":["#####","....#","...#.","..#..",".#...","#....","#####"],"0":[".###.","#...#","#..##","#.#.#","##..#","#...#",".###."],"1":["..#..",".##..","..#..","..#..","..#..","..#..",".###."],"2":[".###.","#...#","....#","...#.","..#..",".#...","#####"],"3":["#####","...#.","..#..","...#.","....#","#...#",".###."],"4":["...#.","..##.",".#.#.","#..#.","#####","...#.","...#."],"5":["#####","#....","####.","....#","....#","#...#",".###."],"6":["..##.",".#...","#....","####.","#...#","#...#",".###."],"7":["#####","....#","...#.","..#..",".#...",".#...",".#..."],"8":[".###.","#...#","#...#",".###.","#...#","#...#",".###."],"9":[".###.","#...#","#...#",".####","....#","...#.",".##.."],"!":["..#..","..#..","..#..","..#..","..#..",".....","..#.."],"?":[".###.","#...#","....#","...#.","..#..",".....","..#.."],".":[".....",".....",".....",".....",".....",".##..",".##.."],",":[".....",".....",".....",".....",".##..","..#..",".#..."],":":[".....",".##..",".##..",".....",".##..",".##..","....."],";":[".....",".##..",".##..",".....",".##..","..#..",".#..."],"'":["..#..","..#..",".#...",".....",".....",".....","....."],"\"":[".#.#.",".#.#.",".#.#.",".....",".....",".....","....."],"-":[".....",".....",".....","#####",".....",".....","....."],"+":[".....","..#..","..#..","#####","..#..","..#..","....."],"=":[".....",".....","#####",".....","#####",".....","....."],"/":[".....","....#","...#.","..#..",".#...","#....","....."],"(":["...#.","..#..",".#...",".#...",".#...","..#..","...#."],")":[".#...","..#..","...#.","...#.","...#.","..#..",".#..."],"#":[".#.#.",".#.#.","#####",".#.#.","#####",".#.#.",".#.#."],"*":[".....","..#..","#.#.#",".###.","#.#.#","..#..","....."],"<":["...#.","..#..",".#...","#....",".#...","..#..","...#."],">":[".#...","..#..","...#.","....#","...#.","..#..",".#..."],"&":[".##..","#..#.","#.#..",".#...","#.#.#","#..#.",".##.#"],"@":[".###.","#...#","....#",".##.#","#.#.#","#.#.#",".###."],"_":[".....",".....",".....",".....",".....",".....","#####"],"$":["..#..",".####","#.#..",".###.","..#.#","####.","..#.."],"%":["##...","##..#","...#.","..#..",".#...","#..##","...##"],"♥":[".....",".#.#.","#####","#####",".###.","..#..","....."]," ":[".....",".....",".....",".....",".....",".....","....."]},"plain":{"N":2,"H":13,"W":11,"pad":2,"scale":1,"glyphs":{"A":["00032c01e05e30404811c04e00416a168028000","00018a3cc3da108064146366354074310028000","0002940042a00082e41900f80560001fe2d8000"],"B":["00020c0be1c41d201001a2da2c000a2c020a000","00036a0e00a015a00a0c020027606814e226000","0001b607e24416a0121040402f204c1ae006000"],"C":["0002da3f81b82900022b800839236a1bc118000","0002620400c814a2c412a3103ca12c04e208000","0002a62600e62a82001a80c022a1403cc360000"],"D":["00036802e3d80840403ee00e34403a0880b4000","00036a3fe14020e06612023638e0c40aa102000","0000d413806c0841cc1de000048138350350000"],"E":["0002902880aa21c02206213036e346134102000","0002261003ac3c010604e14c04022c2720a8000","0001680120b412618e0dc29013611005e150000"],"F":["0002da3c005a08c15000a0c011e13c034240000","0000da08c2d22401160242a41822b42180b4000","00012624020a0640b20c42963301223ca300000"],"G":["0002da3fa1382920801981a207c0100002d0000","0000d807e05833000039012a20c0460ee16c000","0003143d41003282800ea08a0481621c42c8000"],"H":["0002500a003a2003ca11c2082f41803d2308000","00016a1f00220521682a20dc20604c114120000","00020204804c3d80ca3620103043b412c096000"],"I":["00015815804a1023e43761801243bc188144000","0002001983c02ae1a03861782c01083fe198000","00002a1841b608e19438031817e308288006000"],"J":["0002da3f00300c622000e3de32c11e34c354000","0001040400ca0cc0d603e3043a41403cc300000","00018001a14208c2de19e01c2c601e23c08a000"],"K":["00028228800839a09431e3b40b6006294054000","00035a03c0c40101061640721a414a380346000","00008c2203aa0fc0020ba2381aa388028100000"],"L":["0002960600ee14c10e09e02c28e1c60c4012000","00006a1ec12c0380502e200c2ca218090052000","0001020580fc34605607c3ca08830c03c350000"],"M":["0002c02f20a822210c05a24a0a83ae084092000","00032801039c1c018c04011816205a1e02d8000","00006030c35c1522c82021083b031c01a180000"],"N":["0002a00660b03ea21800a0241aa188320324000","0001340020ba30038016818a0d82540fc030000","0002d81fc08804409820018037c39c098080000"],"O":["0002da3f81b82900022b80003903a8128280000","0003223a417012200e16c0020281d03f036c000","00035435811a3622c810e32836a128240000000"],"P":["00008c23810839e3c20400981fe14e3042a4000","0001441400802da18a2100c600e3443fc19a000","0002180042901942180a010e01c0fc1c61aa000"],"Q":["00006a22c03a24206820e3a40da02405e106000","00033439816a31232812e3082a006400000c000","0000a007814e1463a022e04e0c8060082132000"],"R":["0002d21c404e1162101e030638013e220018000","0002320f22201d030c34014c05015c108264000","00000619e2040982b01440d804039417c21a000"],"S":["00000a0a01321783063ae1042540c019028a000","0000042a204c0da11006a3a01842d403e166000","0000c22101bc31010811e1922200242bc05a000"],"T":["00002428832a18a34c2101e03d424a12a000000","0003220242461063a83d01c80460301c61b0000","0002182f80202ce2a00481da0c008a2c82a2000"],"U":["00019821e08601c16210439033a190390306000","00011000a0ae288146336384114160078098000","0002300fe1881c601835a01c0c03d00a4004000"],"V":["0000b00bc00414613c38c14016201821c28c000","00024a08406e22628c0d432419e20e0c4014000","00014015430c3ce1521083203640863be0b4000"],"W":["0000142941503043a812a12e0202e81ea082000","0002902540c42800b838209a2682a203c02c000","0001821283a82101220180aa3860840fe036000"],"X":["0000820803d805c1060f634c378144104040000","0001520082c01b439831a1243303b0100298000","0002aa21c0962c81483dc35a1022280600a6000"],"Y":["0001b20701a81c000a1c42de0443dc0880d8000","0000440100541ca09418615e3041fe096150000","00015a23c2d20000303023c81060ce3b40b4000"],"Z":["0002d00221d81003723d80220c805c108234000","0000aa0a82521dc3501262e00bc20c288024000","0002902901783403120f034c09c08e008148000"],"0":["0001aa3a033011033830208a2c80a0286230000","0001601403b81102102c61843063ee024352000","0002b00401c604001815e08818017839e36c000"],"1":["00019801e35a3a41861163441f2280054054000","00000435e0762cc1122422500923840fe366000","0000020d81003c43d81483643a618808024a000"],"2":["0003421583003a200a34002a3a418602e02c000","00031a3fc1460ac06630608c38804c21a080000","0001b63f600c08a0701820001322f0082124000"],"3":["00011824805a1120d02e221c0a600e154142000","0001680f000212419e2980343803241c4360000","0001800000f63b60041280c004812e0fe06c000"],"4":["00010a0801ea03019039631800e0ce164202000","0002c81ca1ec01604c1520841960c01e418a000","00010021604829e0182a628606c0f238808a000"],"5":["00001a28a2780c405c28e018260140078168000","00012c20e0a60602580482201223603c81b2000","00016217800808e04616033e3061c420e0ca000"],"6":["0001801d816432e31613c1aa0c004824200a000","00005a33e0082f802624601c06a14011a080000","0000d40001840182bc06a00c1863f630409a000"],"7":["0002501201c43280723c014e1c83483e2180000","0001220902602e610431a3b806231400034c000","00006a0f016213400019414027c21e0be218000"],"8":["0002c41f030431811a16006c00c0c63e6260000","00016017800a0d82801b43802100ba06c156000","0002c01c82b203438637e1102060500ae0b6000"],"9":["0002da3f81b82900022b800036801e3e8180000","00031607e01c1000e02b40f4202060370030000","00036c1b01900b81000420041f62b604432a000"],"!":["0000ac02c10611e3b03500743140001f8060000","00018c3c839815c2463061f43561ce22c12a000","0001881e830e3d61dc2260640561d6044294000"],"?":["00016c3703301c820205e10c23a0b6048118000","00006617c2522c808a30c0983ba310048300000","0000c607e1282301840c82201020cc03e36c000"],".":["0001981fe3fc3fe1fe1fc32a3161143fe366000","00002c2101303e610426a2c81423423d01a4000","00020c1903ca1cc3881a63282ee1800a40a8000"],",":["0000001541561560040e42d010231e3fc19a000","00036c3f017a2d02600ce04e0cc0c0000004000","0001ac38e3260200702b001c2980cc18c28a000"],":":["0002802a61c005e03c35a0cc38e0443e4180000","0000c400417826c05618e03803a3a41c8102000","00022c29c10837e3181842240c42ac150356000"],";":["0002da3fa00032c0be0043d60c6084000030000","0000581dc27e1c6314394140390312142200000","0002241643103261b01b030c06c366044322000"],"'":["0001980123ea34012a2f010a00017c2b0280000","00004401c1060de1c401e0820802321f0368000","0002a42f81543302841f434037417823a054000"],"\"":["0002da3fa13018032c1c03f03fc078092220000","0001961ce0c42820b01700700e015e05e28c000","0001b60002aa3000ae3761e424a0be1f00c6000"],"-":["00018a1843ce3c615024a32a18c1fa0e0200000","0000660fe0741681140101040f21bc386346000","0001602cc09e10e02c08814419234a3c80a0000"],"+":["0000642bc02e30c00c3d228803a18c244228000","0000c20f23c009008822206825a3c00d20d4000","0002081003043441fe12604412428e2ae00c000"],"=":["00019639e0000f80340f010004417417e16c000","0002361583fc38a02c3263820ac39e13e108000","0000b02bc2100aa2821280dc2d421617e010000"],"/":["0001301723b831015639030800e1a0052244000","00019829e0f02c01d03240143041fe130206000","0002801ec3803321801e40b039008a2522a4000"],"(":["0002da3fa1b83921803b60b0382194100320000","0002b42d81ca30811a33c36a1c83003a21ac000","0002c01f21080200a430418e16e1dc1ca0c0000"],")":["0001980023ea38411638c3a60e402e14c20a000","0002a02080840bc2ce02c1061520140ee0d6000","00001237e06429e16621413634e00c242294000"],"#":["00010c13e39839018206008c2201aa38a350000","00001a0822282ea0d411602c09c3001d4114000","00020c16001a0c22602900242e236c09e086000"],"*":["00010a27204833804800614c1740c01fa060000","0000182a21f009622026e0200961b01e20d8000","0000541e803a2d40001a204c2ae180390314000"],"<":["0000a80a82a00b02383041c224c0a62b82b6000","0001823ea3e80520b00061100f22f0082280000","00006a2e81d82c20320040ca0f03e604034c000"],">":["0001980023ea38411638c14231030c0e00d4000","0002a630415635039601606436a388192200000","0001aa0c20982f22821c40a42d622008400a000"],"&":["0003603920c409604c14626607429400e346000","0002582221e03143420da04011c0e004a0ca000","00026003a0a01140740c82d42100e81ac2ac000"],"@":["0001642c60d62041aa00e2e402a1100001aa000","00035638c0fa3083041f01c005e21808e056000","0003683ea0c208003833002236c00c19802c000"],"_":["0001981fe3fe3fc1fe24e02c1100281c02d8000","0002b21fe1fc3e20b83f0304100198060056000","0001b23c01a833039418813003824210009a000"],"$":["0000b21042de1b008808038a01c2a801c2ac000","0003060803c60b00580921c228c0be0060b0000","00018a3ca0cc0582200a018a0da0d401e0c6000"],"%":["0003341fc30e3a80482081443703301cc060000","00000813829c2240860462541ca3cc008198000","0000901942c420810c00c27626e0402e42d2000"],"♥":["00030a00c3ae1d619400229002833e0722c0000","0001b63ee1cc1861440d428215438811216a000","0001022500080d020215c04611e0dc396096000"]," ":["0001981fe3fe3fc1fe3f63d8174220022200000","00012a1fc3fe3fe07c1f806c29a14e304304000","0001b63f83fe1fa1fc0b809c0361be0302c2000"]}},"blink":{"glyphs":{"A":["000000000652900b00b7c08cd00c1e1a8520e53d68199bf1c0b9778a19b4b6818bd1ee0929a780c3800607bca60122837e00f20061b3a494024ebca020a0cc07d4be807a208012960360c2180219132a0018d95c1a677360090a8007fabe803c028c12fc6ca05a0654101c1be149371c0290aa40000000"],"C":["000000016801400f045a61259180025b92c06532541200e8404ac19a0e15040090ff0818501ce1b4c10402e62480291c90078e53e066aca60b364b8008020e083298a11874cc038e8ee154d8060c6ad241a40d3408073a6099712e0924cf40a1eef6192c4ac018c4fc0942c620c0f64416436200000000"],"E":["000000013455b6007980e1208364094e0ec19b3a8e1e51dca080807c09a794e0426b3e0ec80b415d239402135b60708f7e08e278c10200400c94abc1cd610009c19900bf8610034d0b41004498115a5180311cce14a10a80d593841c4c2a41a09844085590a1118ca00328816086479006468c80000000"],"G":["000000016098041f8426c082326e0da077e1c1a084019a0d80293f501695cb203408040f42aae0cb8178010562e1741a68105a2c600d501c11e15041511e6e021b41600d188c1e13a6a1c2a76c09404661023696195ed840c60fa61429074010e93e026824611752c00a204ce091641801aa8820000000"],"I":["00000000aac01800199800a66e3402665c2066410c009355609132061c9893c199cc8e0c9f61c1c470d201c9e06029824c06321ac182580801805241b354de1c4880e0889340074d93e03d681e06215580c15a661da1c861c1a10c0a8c2760d61c6e0018b040cca52601ea9ce0d8ff34014d2580000000"],"K":["000000004412b01e281f007f270e12afd4e00a3f3c0c230801485420008689e0dd08c6002848c020f66c02844421271530116809804c738004c59220e032180b589bc1b498841801210039c8e61be031402c6c24169ce6414c032a08964b0020a84409912b20c3250c1b210de1388f7605916b40000000"],"M":["00000001446ca8005eca8141d3c001182340910b18068f150106486a04623a00f2139a1c3ac001a7246208602d8039d3da014e43418144a602a25461996de008e52901522184044acf8104c21002121e40249a640b4a16e131144e0090c0000cf3b001cf18c0b4a6fe082e64e01390f805345680000000"],"O":["000000016c54200e2e29a19beb000de9cd00c09aec031444a15e2212014d30804889621c21a7c098d01604675460d986cc04010660086a080b78552171858a06982001269470051a414178f4cc00401060830c7c072241a0b675c8023fbc80a0733e08733321fb13241a26440011c88818a04a00000000"],"Q":["00000001a2840a02db8601701370086a040110860a11918d8046640c1c61faa0483c180bd3d4803d083a0694fba1339ec00865b001c8183c18d21540a1fe160b811861ee58940c8582610e0b26054c504115687000909240d602340055f480ff10800da60720e828481c05bde18dff3009034280000000"],"S":["00000001506034051007808b5474092389205f892203233e40e29226020294400fc42006d4d5a0b8198800e19220439c121223a900b7b8d0039c4480a80d0c04629660b9d27e00350001422b480684a0c095925c0e7116e1810c860b98b600ecca18040a45212108a203c8018184db9002414ca0000000"],"U":["000000008269460bf11900208b6001a725a0af612c007ff160702e5c00474941c0929807d806003236461c0db8e186e8240b674181b086a400649461a0b26400b10d407181cc0e2d73214ca8b0002c706140d04401d69340b724120a1f0440005f2615c6c0401a0a88145812202074821362a100000000"],"W":["000000012b4b0009fb8681eb3602088a7aa0a2d6101a65bac184364004543ac1ca4fbe0212d8000c81880a44c4e0f2eeee19a039c06895101af9a300c6c4681078284075f92403a8288123002c0852d281599f90065bb12108820c0dc431e0eebab218e45e015022120005c7402f818218614100000000"],"Y":["0000000000d3641301006026d9be160181c01afa0019bf0da1cbd02c09020a604f38b60fd3fd404be69a1f9341a048645c09862c80c74c84094cc681200da005b0110050e8420c262ce05507040300a3e08b01961681184061e03a0a657321340988165904e070c238098674e09fbcac00daaaa0000000"],"0":["00000000a024a008f66541c92488066461c026142410667fe0e8c7481b1010018049e403f6c641f7831e0ac1ba4086b86e1e4904e028078019351560a2e8401fd9de61ac3cbe081b094083058603e26ae14090e4091448218f2c30169227c043b1f008d427e04406e606e9f74021463a15100940000000"],"2":["00000000164cc2048cc98121211e0fabb781fc1a7c0e82a6c10c620605d44821082e58041a0c0034920e1270af00c152461f9a7c005c22ae03932fc0ca9c1a03984300e4647e169060600653d4148d30c0d925b8144120800804ce167f8980e444a2021430409205940b3608a0126c5001056a60000000"],"4":["0000000086d8d2082e1f00bee1c0035822a09bc27010c769e19b760e0eeb64c129030a1dc508407c9c701c89404191912407b436a0682c280410172157688410fcf06016c6c016031840e2889a0373c200292d900e0834e19ba4401f26c480a183cc13cc64206c39481444a3200c99201b191940000000"],"6":["0000000148c02a00d2af015210240017ab80564246029b0800417a56093792808322001982e140355cf213112100c0fcd20ce62e80660952061aa6400826641b2378c0158da001e400809024980ab0718045151e165164e09f3a3405d120200321c80048170168398a0f06ec007f87d006809a20000000"],"8":["00000000466d5a17fe1400ae4c1c1f041581a9188a03d4342168243c0ca68ee08344060600b2416a6f72083b8800445940000701c01b4a000814a2200000fc05cd63418fe27400ac246194a1c00566c34008041a121b7040aa32d618a82e61cc27300acfa7e170180402002d61730086150a2900000000"],"!":["000000002889121847c5003281801248a2804c3f5e0c9ce8e032e82c114169818c6c2c064074603920ce0c37424188aef60314a9a053d9941459b0e0a443860041d0c159ca0a171ab380445ff20a4c44a034d8f812440f80c5431c1c90ffc0993e66113996e1c36fec09b21e4117fe1e0564d6c0000000"],".":["0000000018430219877e81ddcd680dc389613990201c5230807816de02f752205e61c01f623f2033758e10be004022602a1eb2af40d353000e91d880762078100c2220e5c484078936e0e0e3d20f43800194d4b81e0d2640a48a4214c925a04a30481236ca0051469a0b3201000a3bb20c154800000000"],":":["00000001b50c061c60e660fe868c0c09a2c03f7708036e7ca094729c12827de05c2cc41c62fba04405560ba6ee811902780821d4a0ec9032011a290109140a19586100a708900a7212c0e40f2c088d86804dc2221ce7940040094e1944140096db56184988e18000440ecf49608a332614826880000000"],"'":["000000006d191a1c62270046f0ca011337c1e19a1e0dd802c07c31da13b8f001f908ac0606c621eefb000c004c20ed08e00b8f4d20c84c481a9012a061b97c1bf12ca16c222003d59c016c850217720300a65ebe044421816c415016d3d0e0c22ac8037a41615fc4200cd9cd60e012800632ab60000000"],"-":["00000000d18cd00d1d7d2046793c07f2ae81282f32035b11a0b7e74409beea01cb67741085d4409ffc1002f0c300a95904099992603b19660691994046118618618fe15f5fac0a590a418259ee1b21dce034cafc1848d24010a84a1dbf60008367f01117e3c00960be023d29e091e22c104c1020000000"],"=":["000000001a9b2c09f412210feb6c0efabfe0f1ab820470c9c043004e007f00c13c69f60f532ac18220b218661d2066a690040a80017fc16206dcb9a147360808040c013824b602f48640b1db480a9688207119340206c42144e8b40d3ce761ccaf000ee5d34156ad2a08340920083cc808045220000000"],"(":["000000019b49a8197e10e0b55eac07ab7cc153583807aa04a165c7a21fcd41800d272404813e206da8021d7a4141f01328068f9c21ed841a0d00200158649a00e954005c022a03f3190068741c000da4e106b0c617c4314040fc3603b153a144d0640c2fc66057fec60061f6c0cc823402283680000000"],"#":["00000000110300041182a05a3d2c140656e109823006c1b2e164a8ce005465804060900bd8d3200911380a073140842ba21d2c4640d7e5241e810c80defca40e6d19004332c8033200c0193a441f938920c283521098718045389e01e98480b18338051242e0e333940f64f24008524018b04000000000"],"<":["000000003688d8034397811aec34157ed10097f12a1d6b8701c5c6840b6e10a0c5a84819a0b96036386001d6c26028059818130241d6d1e00d04b14111840a003391205a94e809484981042342030b20a0930c64116493e025f1121e13c8c0d77cfe0a5d44c1a4631c0e447ac067fc4e10668560000000"],"&":["000000015052b402406ae0c0576e12995f4049a7a20f9329c16479fe01acb2e1311a2c0456c0600de29415d8ca60872c7e1f299e4041ecfe12154e417b710406a160008e19241aeb0c8190256a093298212a5a1001440bc096491018628421fc33180c8c9a018403b60fd13ee0a65fac1a432020000000"],"_":["000000014012d814889b80793b7c120cb920c1ffa416c10800ee889404503c413de0be1a58e760eddbdc1ed649419302b002db0d81cff2b01df62ee04a8ede064df88077b38e02bb25802f17f810d7a8600b141c01ffffa11877e406341560d0f736025831c039824219072481fe14a80c990a20000000"],"%":["0000000041602c010fd5c052e02818fc6881b8f03e0d03ea01897c0e042683800ab23e031fc180c45da00048410186d09c0706cd4044f58c12ad026040265e0cd22501f551301a8789a0d92a7603d004c0c06d2a1a48e7819d42280949a0a1183a6201354580cd095a026ccec020612608cb40a0000000"]," ":["0000000112944c005cd8c177e0e8006f4fc0c6065611f449e11c539400df32c1cbb1880f5e74a0e905fc0b5e42e1aefb0614ae0780b092461b76e4014f00780a0d28e1af157c1ae8bca08160e4091329c1fa3af60c9816202a42f41505a001f26d34073017c00526281a6cca401020fe0c14d560000000"],"B":["000000000522b4183e1b803181b41e000f2025a5a211fb444059220811bc684163b1a609285180067210066d1560f644a20df31301c3293a1d933040093362033c2341680c48108314808861cc0038ab408923e60e8e03616341440090b22148ba3013448040654f0814eebda0f1b9c00aab5a60000000"],"D":["0000000149126a019b30a0c4893400b94a006218261e96fa40229ed20690ee4038ac0210598081c06ff4074c04600d90d81601ac00e8725604011a20081a40045dcaa178e4d406e620400f04d21c0b80803048d80478a0017079960e02f201a777661a8658c0a0440a0d2045000dbacc0c851000000000"],"F":["000000014b6c5a0c6f23e1d7a8b0043141804031c007d631805910241809a9e147a25e02c4ffc14c63b0123f63a083972e1fd9fb81b718de09206760b0a82c007614814beb3c078d23408b05701df2a481df902206bd9e41859b0e04ee1020eed27014d1b3400910a2003a006047d6ec005a5220000000"],"H":["00000001010da2004e66c069200603484260b1368408969fc03c605e0899696012fc0413644e60a0be9e182e50c195fce20e007f81693e0c08e304a19a025a19be64802c2c8003a280c04021b01174cb20e3988018440941e1117c06346b601bac0a13a08ec0064438063dd82107889c1532a2c0000000"],"J":["000000011a6c58126875e0c06c0e048b67415f41c8000e7ca01014d00e3020800da898105918a0e816901924e26109e06006a268c0cc2528115a50403e23d00ab8e18104c86809a702e1d206580014ec418768040d90532121926205dced810824040c2209616a846001f0bd8066237c101001a0000000"],"L":["00000001825566016588017106da000a0940419414047f6940e19d26076a66012e413400e1a0a123b172041534814e9044117892402c559204228240e035d6138437c06348fc02a02181304b84093081608d41260322c5c070481c025ca8c12298161c19f380ccc20c141004c01a3d2e12935060000000"],"N":["000000016004000e12f680d250c2046812e0904318024bc701531272079229a09392081c318c01adad3602325420420a80009d01c04ba8e4043220210d0d440dd5f880c059a4113028604c03681346a0000c884c05bd3760c988a00f20c48184764c072c1ca05b50bc0898e36040243e14c41b00000000"],"P":["000000004c8c40024dc720621b6816e2c5a10b5b1c08cc15606fc834037971210a7bb00893a64003ea0600bc8c6072a67c12ed1dc086c5401d24e80194513e0b922481591640062b3cc192b0280137c521c95ee416a62e80123610034bbe40c250c61265146108ec7002f75101380c240598ad40000000"],"R":["000000011a165a05c0e7e14d1380010a60814fa46a055004400c2b88025b3240e586860ee26240b848a2198c82818bc45005003ce124c208155cc560000b20003b3161ad90a001e8aa6021c06c0e2030a015fc40086d96e0988a181ac28200f99cca09b475404a8384145210a028527019450860000000"],"T":["000000008b4c4605ce07014010e011382660239c1005c41080f4f2e0168905e19af44c08c894e1ab7b0419d931a054fd180e388c017684a203be31c0be1996050e06e1a549300420d0a078f4a00d2692a182044a1f90d440b9b828172819018845460e48c88185e8ee1e8f640034e22405022880000000"],"V":["000000000b100804f5c5202e9e400b0f3440a96024002fd701574ea614ec0100aeccb61e341c81b59c060ad49a81331112000403a1cb51840c50840112dd0605241840720c84048700819263aa0039600188005000a6cec1a9e340028b30c1ff99f01964340091088a0c0a45c1fe529006c052c0000000"],"X":["00000000814280108f02a03fb4aa1091020015753016bd3340042dea0ce00980c5e452078368a0d890880c7c6541727c100c1508807b290a085f322022047412fc246085eaa40095e180310c4205169420490e3401d0a5a110ff600c4e7e41ae6a1619ac4a00999c98006425c09d048a085406a0000000"],"Z":["0000000090ad120001e6404409ee032708c0d9294c01314e81789e7416632080beb0901f99daa05b4c3413db8c4017f00408002480168cd807054e600299000141418052caf003949c000b482600da7e805b4d40026a6040b8a0b818c8cec1b5090a03068ec192cd46002f6861ff305c16c90aa0000000"],"1":["0000000064430a006fe7203100481270e461269628091f29602b9f100412910151694e02c984e142054c12924ac09534861f2591e1c474b80068696040910002fc8301fcab620b10304080e6360ec66ae1810c0c1b0cdb0086dda4160bc061bcce840ec247410d648209066521ffe4a8126c4a20000000"],"3":["00000000a312c006000000d679aa0c0581c0358a26124136e192409009358ce0b28a4a06b924814fb44a0d49e7016c0c12139018604672d417bd9740c25a1c0f6d7620a7a6e01bbac5c0d58c2017f332402306481415b0a01101201cb2c900511d2c02448c0045e2d219fd19a0473f2818adb040000000"],"5":["0000000136a33603f07fe060cb40165b92e0a1594000c01c61399c3802cb20002711e400764741b0656200e8c30194ccf6038f1400c31fa60048ab01289b80175d47c040f3ec14636b00fd950a0703c2c1a27d6c1c756260c00cc611267d404d9be41a41b5000ec03e03401681a4331002085140000000"],"7":["00000000450ab40302b780b9232c149664805964881cb84880041c920504c2a072c23c12671e610c5a76093801c0a10ab20607a58064447a18d844a020d30418454d604db8ae15296200950a2e18b61f6152d41c01614140cc691012139a2111c43a01402040a551c60e15a3e067e4a810120a80000000"],"9":["0000000022c410119e46a05f0ec4170d98e08ea14e00db90417b9fa6021437e011de00006fce80cdfec40ef88c41b9080e185232805c40ce00a103800e07441b0e7e01b9309a0f64b3410084c4015485210cfe280a8d4a419b10c61f6c1a80c6d310028e39604287220091df00b4e0bc101065a0000000"],"?":["00000001584d680d83ff01bbe3c80ab68ce17702200201d720cdd104035082602dc99e0cae5f404564140ce522002b22f8159a20e00249a80930d30068640205e7d28108234a0c585fc16811f0119724a0441efa11e13f80161b9c0419f7c0323c661da18ee1400fe805259e21143410140d1a40000000"],",":["00000000910052092527c077516a03700f00b5dc300796ffc08afdd01387f26084fdd81432e1803817d611d6f361827024060024e01728c40c1556a1a0014c001f34005d3a0a164100c089655e14e67801308aba04a51fc1353698088760012341ec126688604c1420064865800df98a0c810920000000"],";":["00000001b21b4c1e643f80bd82940999b3003a73040b6bf5c09574861a9a7de0f184f409435b801a4ef2100066a075e4bc038798e19990e4017b4fc1e71ab6164b53e02fe6f002d99540800eb20025a7c15da62a17523100631d1e1a835d80585b4e07909bc02538520701c7e01b6a080c289680000000"],"\"":["00000001ad6a6607f71001c336c806a85001e0efc00c380320fb10141980fe21fa1bf003419d816bbcde0d9bce21cf92a40b09ede0d9ed481b6d1aa06d99fc1b96fc8166b23203ddfda02ed5b8177faa81661fba07183c816a875a140e7ec0cafac81a7bd0c1ff4c1c0cdcc7e0e0f8061b628480000000"],"+":["00000000da81361c7d7c01c461740df2ac00ac3f34037b958096c7e601de65800b4d3e0d00c1e0a4a1841a644c61ca565e014200412a89c80aa3450183ea381a39c6209a2330095109602256400a4911e0fb80ce1d02f20032180e05b720007a27b81a90a2e181b0e408192c4112727e028c1360000000"],"/":["00000000298b6a151e0e008b0cc81c92528090b0800fe0a2e187862411f70020fc29d01e546d01c266140ca28120fd4620062574a0d202c0085c2201ebb00e18038dc0182e2a01327000cd436a098a4281c158921d526a408360081160a7a05822e80214858086920c0709d9a024c0600464ca00000000"],")":["00000001acd43402ff918191a4920242fa4122081208e5a82020c0d80a4930800d073004425aa16db0040008d9215412341c935260859cc01584204121219a09dd5d21c13c08048bb2014b21be111051c0aedb34044014e15052f8081d53009e1f4602237400b6118600fff0e045621005209060000000"],"*":["00000001b2cb601c3d6f60f6fdae1fa1a6c0c9007007ee16a067092a05869381ffc03c053827a02250a213b01a013791e2008324c08f40ce02805800b4e9b00a1c234033c78209f6f601191b4a04723a40066b1206a2bd21fe911807e6f440babf2607bb5280ebb4501ea4146041f410026c0060000000"],">":["000000003688d8034397811aec34157ed1009034981d403ba17bcbbc0b0e9121caa14c1a2bf9e007d97c0dd79b4004af001d800001fc10f4095db780bb820013a4982021e17a01714580fe0b801a0b72a183243c0a282801a61f420dcfe36095fd940f3d5841b08c540e2039a04d70800889a260000000"],"@":["000000000b60160a7e92e0a2912801c9c7814810e0142d20409672e40520be01515b00006a54c15423800e5598a0438d3c0b811e60426cf4000c4e616d440604ed64c100236e170f0c60c7048416d5e8c01d41ee0e000e600d4f34020e00c15610c01800bda042dc801c5f02002813e81142a080000000"],"$":["000000014814c002104360a92710084c8e205270f802d16fa198ee84042b4101a381c814b4c56029f48003526b0090824e0ac9088044d6260118a88014ac700459e84051b88a14910da101145808a6320183248e1c8c2380d1464800c6d420424c8006a80340241528084218c063854c11945400000000"],"♥":["00000001865a341e8bc0e0c7ecee1a5840c1b331c80447cd2182f1081582c480a96e3019a42a81c60e62046e3e01102084000ec28027066012620c60d5c868062b25e08f3bb20a2ecd01dd84f4080141011262f81dc8e78092342e10178040d4b362168e450009203e0463d88170bc9e108189a0000000"]},"N":2,"H":34,"W":26,"pad":2,"scale":4}};   // {font, plain:{N,H,W,pad,scale,glyphs}, blink:{...}}
-const M = 4; // blank margin around the canvas
-document.getElementById('punct').textContent = Object.keys(DATA.font).filter(c => !/[A-Z0-9 ]/.test(c)).join(' ');
+const DATA = {"font":{"A":[".###.","#...#","#...#","#####","#...#","#...#","#...#"],"B":["####.","#...#","#...#","####.","#...#","#...#","####."],"C":[".###.","#...#","#....","#....","#....","#...#",".###."],"D":["####.","#...#","#...#","#...#","#...#","#...#","####."],"E":["#####","#....","#....","####.","#....","#....","#####"],"F":["#####","#....","#....","####.","#....","#....","#...."],"G":[".###.","#...#","#....","#.###","#...#","#...#",".####"],"H":["#...#","#...#","#...#","#####","#...#","#...#","#...#"],"I":[".###.","..#..","..#..","..#..","..#..","..#..",".###."],"J":["..###","...#.","...#.","...#.","...#.","#..#.",".##.."],"K":["#...#","#..#.","#.#..","##...","#.#..","#..#.","#...#"],"L":["#....","#....","#....","#....","#....","#....","#####"],"M":["#...#","##.##","#.#.#","#.#.#","#...#","#...#","#...#"],"N":["#...#","#...#","##..#","#.#.#","#..##","#...#","#...#"],"O":[".###.","#...#","#...#","#...#","#...#","#...#",".###."],"P":["####.","#...#","#...#","####.","#....","#....","#...."],"Q":[".###.","#...#","#...#","#...#","#.#.#","#..#.",".##.#"],"R":["####.","#...#","#...#","####.","#.#..","#..#.","#...#"],"S":[".####","#....","#....",".###.","....#","....#","####."],"T":["#####","..#..","..#..","..#..","..#..","..#..","..#.."],"U":["#...#","#...#","#...#","#...#","#...#","#...#",".###."],"V":["#...#","#...#","#...#","#...#","#...#",".#.#.","..#.."],"W":["#...#","#...#","#...#","#.#.#","#.#.#","#.#.#",".#.#."],"X":["#...#","#...#",".#.#.","..#..",".#.#.","#...#","#...#"],"Y":["#...#","#...#",".#.#.","..#..","..#..","..#..","..#.."],"Z":["#####","....#","...#.","..#..",".#...","#....","#####"],"0":[".###.","#...#","#..##","#.#.#","##..#","#...#",".###."],"1":["..#..",".##..","..#..","..#..","..#..","..#..",".###."],"2":[".###.","#...#","....#","...#.","..#..",".#...","#####"],"3":["#####","...#.","..#..","...#.","....#","#...#",".###."],"4":["...#.","..##.",".#.#.","#..#.","#####","...#.","...#."],"5":["#####","#....","####.","....#","....#","#...#",".###."],"6":["..##.",".#...","#....","####.","#...#","#...#",".###."],"7":["#####","....#","...#.","..#..",".#...",".#...",".#..."],"8":[".###.","#...#","#...#",".###.","#...#","#...#",".###."],"9":[".###.","#...#","#...#",".####","....#","...#.",".##.."],"!":["..#..","..#..","..#..","..#..","..#..",".....","..#.."],"?":[".###.","#...#","....#","...#.","..#..",".....","..#.."],".":[".....",".....",".....",".....",".....",".##..",".##.."],",":[".....",".....",".....",".....",".##..","..#..",".#..."],":":[".....",".##..",".##..",".....",".##..",".##..","....."],";":[".....",".##..",".##..",".....",".##..","..#..",".#..."],"'":["..#..","..#..",".#...",".....",".....",".....","....."],"\"":[".#.#.",".#.#.",".#.#.",".....",".....",".....","....."],"-":[".....",".....",".....","#####",".....",".....","....."],"+":[".....","..#..","..#..","#####","..#..","..#..","....."],"=":[".....",".....","#####",".....","#####",".....","....."],"/":[".....","....#","...#.","..#..",".#...","#....","....."],"(":["...#.","..#..",".#...",".#...",".#...","..#..","...#."],")":[".#...","..#..","...#.","...#.","...#.","..#..",".#..."],"#":[".#.#.",".#.#.","#####",".#.#.","#####",".#.#.",".#.#."],"*":[".....","..#..","#.#.#",".###.","#.#.#","..#..","....."],"<":["...#.","..#..",".#...","#....",".#...","..#..","...#."],">":[".#...","..#..","...#.","....#","...#.","..#..",".#..."],"&":[".##..","#..#.","#.#..",".#...","#.#.#","#..#.",".##.#"],"@":[".###.","#...#","....#",".##.#","#.#.#","#.#.#",".###."],"_":[".....",".....",".....",".....",".....",".....","#####"],"$":["..#..",".####","#.#..",".###.","..#.#","####.","..#.."],"%":["##...","##..#","...#.","..#..",".#...","#..##","...##"],"♥":[".....",".#.#.","#####","#####",".###.","..#..","....."]," ":[".....",".....",".....",".....",".....",".....","....."]},"text":{"solid":{"N":2,"H":13,"W":11,"pad":2,"scale":1,"glyphs":{"A":["00032c01e05e30404811c04e00416a168028000","00018a3cc3da108064146366354074310028000","0002940042a00082e41900f80560001fe2d8000"],"B":["00020c0be1c41d201001a2da2c000a2c020a000","00036a0e00a015a00a0c020027606814e226000","0001b607e24416a0121040402f204c1ae006000"],"C":["0002da3f81b82900022b800839236a1bc118000","0002620400c814a2c412a3103ca12c04e208000","0002a62600e62a82001a80c022a1403cc360000"],"D":["00036802e3d80840403ee00e34403a0880b4000","00036a3fe14020e06612023638e0c40aa102000","0000d413806c0841cc1de000048138350350000"],"E":["0002902880aa21c02206213036e346134102000","0002261003ac3c010604e14c04022c2720a8000","0001680120b412618e0dc29013611005e150000"],"F":["0002da3c005a08c15000a0c011e13c034240000","0000da08c2d22401160242a41822b42180b4000","00012624020a0640b20c42963301223ca300000"],"G":["0002da3fa1382920801981a207c0100002d0000","0000d807e05833000039012a20c0460ee16c000","0003143d41003282800ea08a0481621c42c8000"],"H":["0002500a003a2003ca11c2082f41803d2308000","00016a1f00220521682a20dc20604c114120000","00020204804c3d80ca3620103043b412c096000"],"I":["00015815804a1023e43761801243bc188144000","0002001983c02ae1a03861782c01083fe198000","00002a1841b608e19438031817e308288006000"],"J":["0002da3f00300c622000e3de32c11e34c354000","0001040400ca0cc0d603e3043a41403cc300000","00018001a14208c2de19e01c2c601e23c08a000"],"K":["00028228800839a09431e3b40b6006294054000","00035a03c0c40101061640721a414a380346000","00008c2203aa0fc0020ba2381aa388028100000"],"L":["0002960600ee14c10e09e02c28e1c60c4012000","00006a1ec12c0380502e200c2ca218090052000","0001020580fc34605607c3ca08830c03c350000"],"M":["0002c02f20a822210c05a24a0a83ae084092000","00032801039c1c018c04011816205a1e02d8000","00006030c35c1522c82021083b031c01a180000"],"N":["0002a00660b03ea21800a0241aa188320324000","0001340020ba30038016818a0d82540fc030000","0002d81fc08804409820018037c39c098080000"],"O":["0002da3f81b82900022b80003903a8128280000","0003223a417012200e16c0020281d03f036c000","00035435811a3622c810e32836a128240000000"],"P":["00008c23810839e3c20400981fe14e3042a4000","0001441400802da18a2100c600e3443fc19a000","0002180042901942180a010e01c0fc1c61aa000"],"Q":["00006a22c03a24206820e3a40da02405e106000","00033439816a31232812e3082a006400000c000","0000a007814e1463a022e04e0c8060082132000"],"R":["0002d21c404e1162101e030638013e220018000","0002320f22201d030c34014c05015c108264000","00000619e2040982b01440d804039417c21a000"],"S":["00000a0a01321783063ae1042540c019028a000","0000042a204c0da11006a3a01842d403e166000","0000c22101bc31010811e1922200242bc05a000"],"T":["00002428832a18a34c2101e03d424a12a000000","0003220242461063a83d01c80460301c61b0000","0002182f80202ce2a00481da0c008a2c82a2000"],"U":["00019821e08601c16210439033a190390306000","00011000a0ae288146336384114160078098000","0002300fe1881c601835a01c0c03d00a4004000"],"V":["0000b00bc00414613c38c14016201821c28c000","00024a08406e22628c0d432419e20e0c4014000","00014015430c3ce1521083203640863be0b4000"],"W":["0000142941503043a812a12e0202e81ea082000","0002902540c42800b838209a2682a203c02c000","0001821283a82101220180aa3860840fe036000"],"X":["0000820803d805c1060f634c378144104040000","0001520082c01b439831a1243303b0100298000","0002aa21c0962c81483dc35a1022280600a6000"],"Y":["0001b20701a81c000a1c42de0443dc0880d8000","0000440100541ca09418615e3041fe096150000","00015a23c2d20000303023c81060ce3b40b4000"],"Z":["0002d00221d81003723d80220c805c108234000","0000aa0a82521dc3501262e00bc20c288024000","0002902901783403120f034c09c08e008148000"],"0":["0001aa3a033011033830208a2c80a0286230000","0001601403b81102102c61843063ee024352000","0002b00401c604001815e08818017839e36c000"],"1":["00019801e35a3a41861163441f2280054054000","00000435e0762cc1122422500923840fe366000","0000020d81003c43d81483643a618808024a000"],"2":["0003421583003a200a34002a3a418602e02c000","00031a3fc1460ac06630608c38804c21a080000","0001b63f600c08a0701820001322f0082124000"],"3":["00011824805a1120d02e221c0a600e154142000","0001680f000212419e2980343803241c4360000","0001800000f63b60041280c004812e0fe06c000"],"4":["00010a0801ea03019039631800e0ce164202000","0002c81ca1ec01604c1520841960c01e418a000","00010021604829e0182a628606c0f238808a000"],"5":["00001a28a2780c405c28e018260140078168000","00012c20e0a60602580482201223603c81b2000","00016217800808e04616033e3061c420e0ca000"],"6":["0001801d816432e31613c1aa0c004824200a000","00005a33e0082f802624601c06a14011a080000","0000d40001840182bc06a00c1863f630409a000"],"7":["0002501201c43280723c014e1c83483e2180000","0001220902602e610431a3b806231400034c000","00006a0f016213400019414027c21e0be218000"],"8":["0002c41f030431811a16006c00c0c63e6260000","00016017800a0d82801b43802100ba06c156000","0002c01c82b203438637e1102060500ae0b6000"],"9":["0002da3f81b82900022b800036801e3e8180000","00031607e01c1000e02b40f4202060370030000","00036c1b01900b81000420041f62b604432a000"],"!":["0000ac02c10611e3b03500743140001f8060000","00018c3c839815c2463061f43561ce22c12a000","0001881e830e3d61dc2260640561d6044294000"],"?":["00016c3703301c820205e10c23a0b6048118000","00006617c2522c808a30c0983ba310048300000","0000c607e1282301840c82201020cc03e36c000"],".":["0001981fe3fc3fe1fe1fc32a3161143fe366000","00002c2101303e610426a2c81423423d01a4000","00020c1903ca1cc3881a63282ee1800a40a8000"],",":["0000001541561560040e42d010231e3fc19a000","00036c3f017a2d02600ce04e0cc0c0000004000","0001ac38e3260200702b001c2980cc18c28a000"],":":["0002802a61c005e03c35a0cc38e0443e4180000","0000c400417826c05618e03803a3a41c8102000","00022c29c10837e3181842240c42ac150356000"],";":["0002da3fa00032c0be0043d60c6084000030000","0000581dc27e1c6314394140390312142200000","0002241643103261b01b030c06c366044322000"],"'":["0001980123ea34012a2f010a00017c2b0280000","00004401c1060de1c401e0820802321f0368000","0002a42f81543302841f434037417823a054000"],"\"":["0002da3fa13018032c1c03f03fc078092220000","0001961ce0c42820b01700700e015e05e28c000","0001b60002aa3000ae3761e424a0be1f00c6000"],"-":["00018a1843ce3c615024a32a18c1fa0e0200000","0000660fe0741681140101040f21bc386346000","0001602cc09e10e02c08814419234a3c80a0000"],"+":["0000642bc02e30c00c3d228803a18c244228000","0000c20f23c009008822206825a3c00d20d4000","0002081003043441fe12604412428e2ae00c000"],"=":["00019639e0000f80340f010004417417e16c000","0002361583fc38a02c3263820ac39e13e108000","0000b02bc2100aa2821280dc2d421617e010000"],"/":["0001301723b831015639030800e1a0052244000","00019829e0f02c01d03240143041fe130206000","0002801ec3803321801e40b039008a2522a4000"],"(":["0002da3fa1b83921803b60b0382194100320000","0002b42d81ca30811a33c36a1c83003a21ac000","0002c01f21080200a430418e16e1dc1ca0c0000"],")":["0001980023ea38411638c3a60e402e14c20a000","0002a02080840bc2ce02c1061520140ee0d6000","00001237e06429e16621413634e00c242294000"],"#":["00010c13e39839018206008c2201aa38a350000","00001a0822282ea0d411602c09c3001d4114000","00020c16001a0c22602900242e236c09e086000"],"*":["00010a27204833804800614c1740c01fa060000","0000182a21f009622026e0200961b01e20d8000","0000541e803a2d40001a204c2ae180390314000"],"<":["0000a80a82a00b02383041c224c0a62b82b6000","0001823ea3e80520b00061100f22f0082280000","00006a2e81d82c20320040ca0f03e604034c000"],">":["0001980023ea38411638c14231030c0e00d4000","0002a630415635039601606436a388192200000","0001aa0c20982f22821c40a42d622008400a000"],"&":["0003603920c409604c14626607429400e346000","0002582221e03143420da04011c0e004a0ca000","00026003a0a01140740c82d42100e81ac2ac000"],"@":["0001642c60d62041aa00e2e402a1100001aa000","00035638c0fa3083041f01c005e21808e056000","0003683ea0c208003833002236c00c19802c000"],"_":["0001981fe3fe3fc1fe24e02c1100281c02d8000","0002b21fe1fc3e20b83f0304100198060056000","0001b23c01a833039418813003824210009a000"],"$":["0000b21042de1b008808038a01c2a801c2ac000","0003060803c60b00580921c228c0be0060b0000","00018a3ca0cc0582200a018a0da0d401e0c6000"],"%":["0003341fc30e3a80482081443703301cc060000","00000813829c2240860462541ca3cc008198000","0000901942c420810c00c27626e0402e42d2000"],"♥":["00030a00c3ae1d619400229002833e0722c0000","0001b63ee1cc1861440d428215438811216a000","0001022500080d020215c04611e0dc396096000"]," ":["0001981fe3fe3fc1fe3f63d8174220022200000","00012a1fc3fe3fe07c1f806c29a14e304304000","0001b63f83fe1fa1fc0b809c0361be0302c2000"]}},"blink":{"glyphs":{"A":["000000000652900b00b7c08cd00c1e1a8520e53d68199bf1c0b9778a19b4b6818bd1ee0929a780c3800607bca60122837e00f20061b3a494024ebca020a0cc07d4be807a208012960360c2180219132a0018d95c1a677360090a8007fabe803c028c12fc6ca05a0654101c1be149371c0290aa40000000"],"C":["000000016801400f045a61259180025b92c06532541200e8404ac19a0e15040090ff0818501ce1b4c10402e62480291c90078e53e066aca60b364b8008020e083298a11874cc038e8ee154d8060c6ad241a40d3408073a6099712e0924cf40a1eef6192c4ac018c4fc0942c620c0f64416436200000000"],"E":["000000013455b6007980e1208364094e0ec19b3a8e1e51dca080807c09a794e0426b3e0ec80b415d239402135b60708f7e08e278c10200400c94abc1cd610009c19900bf8610034d0b41004498115a5180311cce14a10a80d593841c4c2a41a09844085590a1118ca00328816086479006468c80000000"],"G":["000000016098041f8426c082326e0da077e1c1a084019a0d80293f501695cb203408040f42aae0cb8178010562e1741a68105a2c600d501c11e15041511e6e021b41600d188c1e13a6a1c2a76c09404661023696195ed840c60fa61429074010e93e026824611752c00a204ce091641801aa8820000000"],"I":["00000000aac01800199800a66e3402665c2066410c009355609132061c9893c199cc8e0c9f61c1c470d201c9e06029824c06321ac182580801805241b354de1c4880e0889340074d93e03d681e06215580c15a661da1c861c1a10c0a8c2760d61c6e0018b040cca52601ea9ce0d8ff34014d2580000000"],"K":["000000004412b01e281f007f270e12afd4e00a3f3c0c230801485420008689e0dd08c6002848c020f66c02844421271530116809804c738004c59220e032180b589bc1b498841801210039c8e61be031402c6c24169ce6414c032a08964b0020a84409912b20c3250c1b210de1388f7605916b40000000"],"M":["00000001446ca8005eca8141d3c001182340910b18068f150106486a04623a00f2139a1c3ac001a7246208602d8039d3da014e43418144a602a25461996de008e52901522184044acf8104c21002121e40249a640b4a16e131144e0090c0000cf3b001cf18c0b4a6fe082e64e01390f805345680000000"],"O":["000000016c54200e2e29a19beb000de9cd00c09aec031444a15e2212014d30804889621c21a7c098d01604675460d986cc04010660086a080b78552171858a06982001269470051a414178f4cc00401060830c7c072241a0b675c8023fbc80a0733e08733321fb13241a26440011c88818a04a00000000"],"Q":["00000001a2840a02db8601701370086a040110860a11918d8046640c1c61faa0483c180bd3d4803d083a0694fba1339ec00865b001c8183c18d21540a1fe160b811861ee58940c8582610e0b26054c504115687000909240d602340055f480ff10800da60720e828481c05bde18dff3009034280000000"],"S":["00000001506034051007808b5474092389205f892203233e40e29226020294400fc42006d4d5a0b8198800e19220439c121223a900b7b8d0039c4480a80d0c04629660b9d27e00350001422b480684a0c095925c0e7116e1810c860b98b600ecca18040a45212108a203c8018184db9002414ca0000000"],"U":["000000008269460bf11900208b6001a725a0af612c007ff160702e5c00474941c0929807d806003236461c0db8e186e8240b674181b086a400649461a0b26400b10d407181cc0e2d73214ca8b0002c706140d04401d69340b724120a1f0440005f2615c6c0401a0a88145812202074821362a100000000"],"W":["000000012b4b0009fb8681eb3602088a7aa0a2d6101a65bac184364004543ac1ca4fbe0212d8000c81880a44c4e0f2eeee19a039c06895101af9a300c6c4681078284075f92403a8288123002c0852d281599f90065bb12108820c0dc431e0eebab218e45e015022120005c7402f818218614100000000"],"Y":["0000000000d3641301006026d9be160181c01afa0019bf0da1cbd02c09020a604f38b60fd3fd404be69a1f9341a048645c09862c80c74c84094cc681200da005b0110050e8420c262ce05507040300a3e08b01961681184061e03a0a657321340988165904e070c238098674e09fbcac00daaaa0000000"],"0":["00000000a024a008f66541c92488066461c026142410667fe0e8c7481b1010018049e403f6c641f7831e0ac1ba4086b86e1e4904e028078019351560a2e8401fd9de61ac3cbe081b094083058603e26ae14090e4091448218f2c30169227c043b1f008d427e04406e606e9f74021463a15100940000000"],"2":["00000000164cc2048cc98121211e0fabb781fc1a7c0e82a6c10c620605d44821082e58041a0c0034920e1270af00c152461f9a7c005c22ae03932fc0ca9c1a03984300e4647e169060600653d4148d30c0d925b8144120800804ce167f8980e444a2021430409205940b3608a0126c5001056a60000000"],"4":["0000000086d8d2082e1f00bee1c0035822a09bc27010c769e19b760e0eeb64c129030a1dc508407c9c701c89404191912407b436a0682c280410172157688410fcf06016c6c016031840e2889a0373c200292d900e0834e19ba4401f26c480a183cc13cc64206c39481444a3200c99201b191940000000"],"6":["0000000148c02a00d2af015210240017ab80564246029b0800417a56093792808322001982e140355cf213112100c0fcd20ce62e80660952061aa6400826641b2378c0158da001e400809024980ab0718045151e165164e09f3a3405d120200321c80048170168398a0f06ec007f87d006809a20000000"],"8":["00000000466d5a17fe1400ae4c1c1f041581a9188a03d4342168243c0ca68ee08344060600b2416a6f72083b8800445940000701c01b4a000814a2200000fc05cd63418fe27400ac246194a1c00566c34008041a121b7040aa32d618a82e61cc27300acfa7e170180402002d61730086150a2900000000"],"!":["000000002889121847c5003281801248a2804c3f5e0c9ce8e032e82c114169818c6c2c064074603920ce0c37424188aef60314a9a053d9941459b0e0a443860041d0c159ca0a171ab380445ff20a4c44a034d8f812440f80c5431c1c90ffc0993e66113996e1c36fec09b21e4117fe1e0564d6c0000000"],".":["0000000018430219877e81ddcd680dc389613990201c5230807816de02f752205e61c01f623f2033758e10be004022602a1eb2af40d353000e91d880762078100c2220e5c484078936e0e0e3d20f43800194d4b81e0d2640a48a4214c925a04a30481236ca0051469a0b3201000a3bb20c154800000000"],":":["00000001b50c061c60e660fe868c0c09a2c03f7708036e7ca094729c12827de05c2cc41c62fba04405560ba6ee811902780821d4a0ec9032011a290109140a19586100a708900a7212c0e40f2c088d86804dc2221ce7940040094e1944140096db56184988e18000440ecf49608a332614826880000000"],"'":["000000006d191a1c62270046f0ca011337c1e19a1e0dd802c07c31da13b8f001f908ac0606c621eefb000c004c20ed08e00b8f4d20c84c481a9012a061b97c1bf12ca16c222003d59c016c850217720300a65ebe044421816c415016d3d0e0c22ac8037a41615fc4200cd9cd60e012800632ab60000000"],"-":["00000000d18cd00d1d7d2046793c07f2ae81282f32035b11a0b7e74409beea01cb67741085d4409ffc1002f0c300a95904099992603b19660691994046118618618fe15f5fac0a590a418259ee1b21dce034cafc1848d24010a84a1dbf60008367f01117e3c00960be023d29e091e22c104c1020000000"],"=":["000000001a9b2c09f412210feb6c0efabfe0f1ab820470c9c043004e007f00c13c69f60f532ac18220b218661d2066a690040a80017fc16206dcb9a147360808040c013824b602f48640b1db480a9688207119340206c42144e8b40d3ce761ccaf000ee5d34156ad2a08340920083cc808045220000000"],"(":["000000019b49a8197e10e0b55eac07ab7cc153583807aa04a165c7a21fcd41800d272404813e206da8021d7a4141f01328068f9c21ed841a0d00200158649a00e954005c022a03f3190068741c000da4e106b0c617c4314040fc3603b153a144d0640c2fc66057fec60061f6c0cc823402283680000000"],"#":["00000000110300041182a05a3d2c140656e109823006c1b2e164a8ce005465804060900bd8d3200911380a073140842ba21d2c4640d7e5241e810c80defca40e6d19004332c8033200c0193a441f938920c283521098718045389e01e98480b18338051242e0e333940f64f24008524018b04000000000"],"<":["000000003688d8034397811aec34157ed10097f12a1d6b8701c5c6840b6e10a0c5a84819a0b96036386001d6c26028059818130241d6d1e00d04b14111840a003391205a94e809484981042342030b20a0930c64116493e025f1121e13c8c0d77cfe0a5d44c1a4631c0e447ac067fc4e10668560000000"],"&":["000000015052b402406ae0c0576e12995f4049a7a20f9329c16479fe01acb2e1311a2c0456c0600de29415d8ca60872c7e1f299e4041ecfe12154e417b710406a160008e19241aeb0c8190256a093298212a5a1001440bc096491018628421fc33180c8c9a018403b60fd13ee0a65fac1a432020000000"],"_":["000000014012d814889b80793b7c120cb920c1ffa416c10800ee889404503c413de0be1a58e760eddbdc1ed649419302b002db0d81cff2b01df62ee04a8ede064df88077b38e02bb25802f17f810d7a8600b141c01ffffa11877e406341560d0f736025831c039824219072481fe14a80c990a20000000"],"%":["0000000041602c010fd5c052e02818fc6881b8f03e0d03ea01897c0e042683800ab23e031fc180c45da00048410186d09c0706cd4044f58c12ad026040265e0cd22501f551301a8789a0d92a7603d004c0c06d2a1a48e7819d42280949a0a1183a6201354580cd095a026ccec020612608cb40a0000000"]," ":["0000000112944c005cd8c177e0e8006f4fc0c6065611f449e11c539400df32c1cbb1880f5e74a0e905fc0b5e42e1aefb0614ae0780b092461b76e4014f00780a0d28e1af157c1ae8bca08160e4091329c1fa3af60c9816202a42f41505a001f26d34073017c00526281a6cca401020fe0c14d560000000"],"B":["000000000522b4183e1b803181b41e000f2025a5a211fb444059220811bc684163b1a609285180067210066d1560f644a20df31301c3293a1d933040093362033c2341680c48108314808861cc0038ab408923e60e8e03616341440090b22148ba3013448040654f0814eebda0f1b9c00aab5a60000000"],"D":["0000000149126a019b30a0c4893400b94a006218261e96fa40229ed20690ee4038ac0210598081c06ff4074c04600d90d81601ac00e8725604011a20081a40045dcaa178e4d406e620400f04d21c0b80803048d80478a0017079960e02f201a777661a8658c0a0440a0d2045000dbacc0c851000000000"],"F":["000000014b6c5a0c6f23e1d7a8b0043141804031c007d631805910241809a9e147a25e02c4ffc14c63b0123f63a083972e1fd9fb81b718de09206760b0a82c007614814beb3c078d23408b05701df2a481df902206bd9e41859b0e04ee1020eed27014d1b3400910a2003a006047d6ec005a5220000000"],"H":["00000001010da2004e66c069200603484260b1368408969fc03c605e0899696012fc0413644e60a0be9e182e50c195fce20e007f81693e0c08e304a19a025a19be64802c2c8003a280c04021b01174cb20e3988018440941e1117c06346b601bac0a13a08ec0064438063dd82107889c1532a2c0000000"],"J":["000000011a6c58126875e0c06c0e048b67415f41c8000e7ca01014d00e3020800da898105918a0e816901924e26109e06006a268c0cc2528115a50403e23d00ab8e18104c86809a702e1d206580014ec418768040d90532121926205dced810824040c2209616a846001f0bd8066237c101001a0000000"],"L":["00000001825566016588017106da000a0940419414047f6940e19d26076a66012e413400e1a0a123b172041534814e9044117892402c559204228240e035d6138437c06348fc02a02181304b84093081608d41260322c5c070481c025ca8c12298161c19f380ccc20c141004c01a3d2e12935060000000"],"N":["000000016004000e12f680d250c2046812e0904318024bc701531272079229a09392081c318c01adad3602325420420a80009d01c04ba8e4043220210d0d440dd5f880c059a4113028604c03681346a0000c884c05bd3760c988a00f20c48184764c072c1ca05b50bc0898e36040243e14c41b00000000"],"P":["000000004c8c40024dc720621b6816e2c5a10b5b1c08cc15606fc834037971210a7bb00893a64003ea0600bc8c6072a67c12ed1dc086c5401d24e80194513e0b922481591640062b3cc192b0280137c521c95ee416a62e80123610034bbe40c250c61265146108ec7002f75101380c240598ad40000000"],"R":["000000011a165a05c0e7e14d1380010a60814fa46a055004400c2b88025b3240e586860ee26240b848a2198c82818bc45005003ce124c208155cc560000b20003b3161ad90a001e8aa6021c06c0e2030a015fc40086d96e0988a181ac28200f99cca09b475404a8384145210a028527019450860000000"],"T":["000000008b4c4605ce07014010e011382660239c1005c41080f4f2e0168905e19af44c08c894e1ab7b0419d931a054fd180e388c017684a203be31c0be1996050e06e1a549300420d0a078f4a00d2692a182044a1f90d440b9b828172819018845460e48c88185e8ee1e8f640034e22405022880000000"],"V":["000000000b100804f5c5202e9e400b0f3440a96024002fd701574ea614ec0100aeccb61e341c81b59c060ad49a81331112000403a1cb51840c50840112dd0605241840720c84048700819263aa0039600188005000a6cec1a9e340028b30c1ff99f01964340091088a0c0a45c1fe529006c052c0000000"],"X":["00000000814280108f02a03fb4aa1091020015753016bd3340042dea0ce00980c5e452078368a0d890880c7c6541727c100c1508807b290a085f322022047412fc246085eaa40095e180310c4205169420490e3401d0a5a110ff600c4e7e41ae6a1619ac4a00999c98006425c09d048a085406a0000000"],"Z":["0000000090ad120001e6404409ee032708c0d9294c01314e81789e7416632080beb0901f99daa05b4c3413db8c4017f00408002480168cd807054e600299000141418052caf003949c000b482600da7e805b4d40026a6040b8a0b818c8cec1b5090a03068ec192cd46002f6861ff305c16c90aa0000000"],"1":["0000000064430a006fe7203100481270e461269628091f29602b9f100412910151694e02c984e142054c12924ac09534861f2591e1c474b80068696040910002fc8301fcab620b10304080e6360ec66ae1810c0c1b0cdb0086dda4160bc061bcce840ec247410d648209066521ffe4a8126c4a20000000"],"3":["00000000a312c006000000d679aa0c0581c0358a26124136e192409009358ce0b28a4a06b924814fb44a0d49e7016c0c12139018604672d417bd9740c25a1c0f6d7620a7a6e01bbac5c0d58c2017f332402306481415b0a01101201cb2c900511d2c02448c0045e2d219fd19a0473f2818adb040000000"],"5":["0000000136a33603f07fe060cb40165b92e0a1594000c01c61399c3802cb20002711e400764741b0656200e8c30194ccf6038f1400c31fa60048ab01289b80175d47c040f3ec14636b00fd950a0703c2c1a27d6c1c756260c00cc611267d404d9be41a41b5000ec03e03401681a4331002085140000000"],"7":["00000000450ab40302b780b9232c149664805964881cb84880041c920504c2a072c23c12671e610c5a76093801c0a10ab20607a58064447a18d844a020d30418454d604db8ae15296200950a2e18b61f6152d41c01614140cc691012139a2111c43a01402040a551c60e15a3e067e4a810120a80000000"],"9":["0000000022c410119e46a05f0ec4170d98e08ea14e00db90417b9fa6021437e011de00006fce80cdfec40ef88c41b9080e185232805c40ce00a103800e07441b0e7e01b9309a0f64b3410084c4015485210cfe280a8d4a419b10c61f6c1a80c6d310028e39604287220091df00b4e0bc101065a0000000"],"?":["00000001584d680d83ff01bbe3c80ab68ce17702200201d720cdd104035082602dc99e0cae5f404564140ce522002b22f8159a20e00249a80930d30068640205e7d28108234a0c585fc16811f0119724a0441efa11e13f80161b9c0419f7c0323c661da18ee1400fe805259e21143410140d1a40000000"],",":["00000000910052092527c077516a03700f00b5dc300796ffc08afdd01387f26084fdd81432e1803817d611d6f361827024060024e01728c40c1556a1a0014c001f34005d3a0a164100c089655e14e67801308aba04a51fc1353698088760012341ec126688604c1420064865800df98a0c810920000000"],";":["00000001b21b4c1e643f80bd82940999b3003a73040b6bf5c09574861a9a7de0f184f409435b801a4ef2100066a075e4bc038798e19990e4017b4fc1e71ab6164b53e02fe6f002d99540800eb20025a7c15da62a17523100631d1e1a835d80585b4e07909bc02538520701c7e01b6a080c289680000000"],"\"":["00000001ad6a6607f71001c336c806a85001e0efc00c380320fb10141980fe21fa1bf003419d816bbcde0d9bce21cf92a40b09ede0d9ed481b6d1aa06d99fc1b96fc8166b23203ddfda02ed5b8177faa81661fba07183c816a875a140e7ec0cafac81a7bd0c1ff4c1c0cdcc7e0e0f8061b628480000000"],"+":["00000000da81361c7d7c01c461740df2ac00ac3f34037b958096c7e601de65800b4d3e0d00c1e0a4a1841a644c61ca565e014200412a89c80aa3450183ea381a39c6209a2330095109602256400a4911e0fb80ce1d02f20032180e05b720007a27b81a90a2e181b0e408192c4112727e028c1360000000"],"/":["00000000298b6a151e0e008b0cc81c92528090b0800fe0a2e187862411f70020fc29d01e546d01c266140ca28120fd4620062574a0d202c0085c2201ebb00e18038dc0182e2a01327000cd436a098a4281c158921d526a408360081160a7a05822e80214858086920c0709d9a024c0600464ca00000000"],")":["00000001acd43402ff918191a4920242fa4122081208e5a82020c0d80a4930800d073004425aa16db0040008d9215412341c935260859cc01584204121219a09dd5d21c13c08048bb2014b21be111051c0aedb34044014e15052f8081d53009e1f4602237400b6118600fff0e045621005209060000000"],"*":["00000001b2cb601c3d6f60f6fdae1fa1a6c0c9007007ee16a067092a05869381ffc03c053827a02250a213b01a013791e2008324c08f40ce02805800b4e9b00a1c234033c78209f6f601191b4a04723a40066b1206a2bd21fe911807e6f440babf2607bb5280ebb4501ea4146041f410026c0060000000"],">":["000000003688d8034397811aec34157ed1009034981d403ba17bcbbc0b0e9121caa14c1a2bf9e007d97c0dd79b4004af001d800001fc10f4095db780bb820013a4982021e17a01714580fe0b801a0b72a183243c0a282801a61f420dcfe36095fd940f3d5841b08c540e2039a04d70800889a260000000"],"@":["000000000b60160a7e92e0a2912801c9c7814810e0142d20409672e40520be01515b00006a54c15423800e5598a0438d3c0b811e60426cf4000c4e616d440604ed64c100236e170f0c60c7048416d5e8c01d41ee0e000e600d4f34020e00c15610c01800bda042dc801c5f02002813e81142a080000000"],"$":["000000014814c002104360a92710084c8e205270f802d16fa198ee84042b4101a381c814b4c56029f48003526b0090824e0ac9088044d6260118a88014ac700459e84051b88a14910da101145808a6320183248e1c8c2380d1464800c6d420424c8006a80340241528084218c063854c11945400000000"],"♥":["00000001865a341e8bc0e0c7ecee1a5840c1b331c80447cd2182f1081582c480a96e3019a42a81c60e62046e3e01102084000ec28027066012620c60d5c868062b25e08f3bb20a2ecd01dd84f4080141011262f81dc8e78092342e10178040d4b362168e450009203e0463d88170bc9e108189a0000000"]},"N":2,"H":34,"W":26,"pad":2,"scale":4}},"tiles":{"solid":{"2":{"T":8,"target":"0000000011111001111100111110011111001111100000000","filled":["0100100000010001111000010000011101000101010000000","0000100001000001101100011000101010100001000100100","0000100001001001101000011000001011110001000010000","0000010010000001101100011101010010010000100010010","0000000110011000111000001000010010001000110010000","0000000010010001111000000100101101101101000000000","0000100100010101101000010010011110000101010000010","0010000100010001011100001100001010011001000000100","0000000101010101011100010000011010101001100010000","0100010000010001100100001100101110101000000001000","0000010011000000111000001101010010010100100000010","0100010010000110111100010100011001001001100000000","0010000000011001111000010000001101010101100000000","0100010001010001011000010101011011010000000000010","0100000001010001011010010100011011010000000000010","0000000010010001111010000100101011001001000010010","0000100110010000111000001100010010100100000100010","0000100100010001101100001000101011001101100000000","0100100001000000101101010001011110000001000100100","0000010011000010001100001100001011001000100100000","0000100001000010101100001101011010001100100000100","0000100100010001110100010100101011001100100000100","0100010100100001101110001000011010001101000000010","0000000011011000101101001000011010100100100010000","0001000110010100111000001000001101000101010100000","0001000000001000111011011000010011000100000100010","0010000010010001111010000100101011001001000010000","0100010000000101101000001100101101100101000100000","0000100001000101110100011000001001001001010100000","0000100100010001101100010100010110100100100010000","0001000000001110111000011000010010000100100100010","0100100001001000101011010000011111000001010100000"],"empty":["0010000101001001111010001100000000010000000100010","0010000101001001111000001000110010000000000010010","0000000011000010001100011101011010010011000010000","0000000010010000100100111110011010011010010000000","0000000000110001000100010100011111000111010010000","0100000010110011100000111100011010011100000010000","0100100011111100010000111100011010000000000000010","0000000011000000001110111110011001011100000010010","0000000001110000011111111010001001000010000000010","0000100001110001101111011010001001000001000000000","0010010001111000110000111101000000010100000100100","0001000011100001101100011101010000010100000000010","0100100001000011111000010000001000101000100000010","0100100001000011111000010000001000101000100000100","0100100011111110101000010000001010000001000100100","0001000011111000101001010010001101000110000000100","0000010000111000111110010000101100001110010100000","0000010000100100110100011000011100010100110100000","0001000100000100100100010000011110010100000100010","0001000001000111100100011000011101000100000100000","0100100001010001100000111111000010001001000000000","0000000000010001100010111110100010000101000010000","0000000000011001100010111100000011001111100001000","0000000010110001100001111100000011100010100100010","0000100001111101100100111010001100010000010000000","0000100110100101100000111000001101000010000010010","0000100100100001000000011110101100000110000100000","0010000001110001100000111100101100000010100001000","0010000001110001101110111000000010001010010000000","0100000000110000111001111010000100000101000000100","0001000010100100111100000110100110000101010000000","0000100010100010111100110000001010100101000000000"]},"3":{"T":8,"target":"0000000011111001111100111110011111001111100000000","filled":["0000100000001101111000100100101100000100110001000","0000100101010001001100010101101100001000100100010","0100010010001010110000010101001011000110000000100","0001000110010000011010010010001111011000000010000","0001000011100000101000000101010110001000000100010","0000100001100000101100010101101100001000100100010","0000000010011101100001100100001110000000010001000","0100010010001000011011010100011001000101010010000","0100010010000001011000000101001010001110000001000","0100010010001010110000010101010011010101000000100","0100010000001000110101010000001010000011100001000","0001000011100000101010000100010110001000100100000","0010000000110001101001010100000110101000100100010","0100100001001101011000000100111100000100110001000","0100000010001001011000000100001010101110000001000","0001000110010000011110010000001101011001000010010","0000000010011101100001100100001110000000100010000","0010000001010101100101010100000110101000100100010","0010000110000000111100010010000110111001000001000","0000100010000000111000010011000011011100100000000","0001000001001110110000100100011110000000110000100","0010010110010000110100010000000111111001000001000","0001000100000000111000010011000011011100100000000","0001000000111000101001010000001101000000100100010","0001000000111010101000010000001101001000100000010","0000000111001000001100010011001110010000000001000","0000000111001000001100010011001110001000000000100","0100010010001000011011010100011010000011000010000","0000010010001000110100010000101010000011100001000","0001000001001111110000000100010110000100110100100","0001000000000100111001100100011000001001110000000","0010000000001000111001100100011000001001110000000"],"empty":["0000100101100001111110101100000000010000000000000","0001000000011001000000111001111110000010000010010","0001000100101001101000110000001010010001000100000","0100000010100001100100000100001111001010010000100","0010000000110010011100010101011101000100000010000","0100100010011100011000001110000010100100000010000","0000000110101000011000000001001111011000000000010","0000100101110001100000011010011101010100100010000","0000100001110000010001011010011101000100000010010","0000100001110000100001011010001101000100000010010","0010010000010000011000110111001101010100100100100","0001000011001001101100001101000100010001000100010","0000100001100011111100000000000110110000000100000","0100100000100001110101010010001111101001000000100","0000100101000000101000111010101011000001110100100","0001000011100000101000000100101101001100010000100","0100000001010010101110000100001101010100010100100","0000010011010101101000010000011100000101100100000","0001000101000101101000110000001100000011100100010","0001000101000101101000110000001100001101100000000","0100100011110011111000010110000001000110000000000","0000000100010101101000010000100110001001100010000","0010000000010000101011010100000011001111100001000","0001000000101100111001001110000011000010000100100","0000100001111100111000001000000010010010010100000","0000100001111111101000001100001001110001000010000","0010000001110011001100000110001110010100010010000","0010000000010000101101101110011010001000100001000","0010000000010000101101101110011010001000010001000","0001000010010000110101001100000110100001000000010","0001000000001100101100001110010110001001010100010","0000100000010010101100000110010110100110000000010"]}},"blink":{"2":{"T":10,"target":"000000000001000100001000100001000100000000000001000100001000100001000100000000000","filled":["000000000011001010100010001001000100000111000110111010000100100001000001010001000","000010000101000100001010101000000000100111000001011000011000110001101001010000100","000100100010000100010010011001100000011101000000011010101001100001001001000000010","000100000001001100010000010011100110110000111010100110011001110001000000010000010","001000010110010010000001100000111010111110000001000010001000100100010001010000100","010010010010000100000000001101110100011111000001010010010001010001000100000000000","001000100010010010000001110101101000000001110011010110000000100001000001000000100","000010000001001010100101010010110011000111110010000010010110111000010010000100010","000000000001100010010001100100101010000011000000010010011101110001101100010000010","010001000000101000010011011001000000011100110001100000101001110010001000000010000","010010000000100110001100001000010100100001000000001100001111001111000000001000100","000100100010001001000101100101111010011001000000100001000000100101010010010001000","000010010000101000010011101001000000011100000001111001010100000010000110001000000","000000100100100100011111111001100000010000100000010010001000000101010110000000000","010000010101000100000010001000100100111111000001010100000100001011000100000000100","001001000000001001001101000001000100111000000011001010010110000000010010010010010","010000000000011010001000010011000100011011110001111000010000010100001010000100100","001000100001000001000111000010001010000001100010100111000011100001000000010010010","000010000011000101100010100000000000001000010001101100011101110100111001000001000","001000000100011100011111000000000101101100000000000100011100100101000101000100000","010000000010010100000010010011000100000001110011000101000101100001010010000010010","000010000001001100100111001010001010000001000100111110010001000001000010000001000","000000000010110110000011000010000000100010100001001000011101110011001100000100010","010010010100001000001001100011100000011001010001001010011010000000001001000001000","000100000011111000000010100100100110000101101010001000000011000001100010000000010","000100010001001100000101110011111100000100000100000000001000110001001001000100100","010000100001100011011010000000111000001001111000000100100101000001100100000001000","000100000110000010000111100000100000010111010010000010000111000100100100000100010","000010000000001100011011010101101010000100000011001001000110010000001000001000010","000010000010000110101010001000000000000111100010110010100111000001101101000000000","000000010001100010000011000010001000000011010010101010001110100010001010001001000","001000100010010001010100010001110100000101110100000100001000100010010001000100010"],"empty":["010000100010110100000111111010111100010010000110000000011000000010100100000000000","000100000100101000011110101000110000000100100010100000100110000011111100000100100","000010000000011100010110000000010000000110100011110000010001100111111000001001000","000010000000001000011000000000010001010101000001111110011010010101011111000000100","000010010000000010000000000100010101000001110000011100001111011001011100000000100","000000000011000110101000000001110011010101000000100000011100011001000000010010010","010000010001011001100000000011110000011100000000001010101111110000110111000000000","001000010000011000010000000001110001000111100111110000001000001010010010000010000","000000000000101100010000000010011011000011100011100100001100000101010011010000000","001001000111000000011001001010000010001110000001101000011100000100101011010010000","000000000110000000010001000011101000110100010011101010011100111111001100000000000","000000100010011111100100100000000000010110100001110100111000000001000010000000010","010010000000010000001000011100100100000110000010001111000011100101001010000001000","000000100000011100010000110010000110110101101011001100010010100110000000000001000","000001000001010100111000111011000110011101110000000100110110001000000000000010000","000000000101110000011100101001011000010011110010011010000000000000011100000000000","000001000001001110000011010000000111000001100100111000000011111000010000010000100","010000100000011000100011010001010010001001100000010110100000110010100100000100000","010010000001010000011000010011000010011001000001010000001100001011111100010010000","000000000000010010000000010000010111011000110011010010001100011011111110010010010","000000000000000010000000000110110100011000100010110011110111110011101010010000000","000010000110100001011000100010001000110010000011000011011101000111000000001000100","001000000000101011001011100000010010000011000010001110001010000011111000000100000","000000010001001100100011101001011110011010000011000011111000000010000000010010010","000100010010011000000011100000111101011100010000100100000000000010100001000010010","010000010000101000100101010000000100010000110101010110001110010011101000000000000","010010010001001001000011110100000100010000110001011010100001111000001010010000010","000010000010000000010000000111000010011000010011011011001001110100010010010000100","001000010100000000000011010001000001001011000101000010001111010011101000000000100","000000000000100100010010010011111000001011001010001010000001000100111110000001000","000000000000000001000000010011011000001111010011001010101001000001111110001001000","010000010000001110000000011000010110001001010011101111011100100111000100001000000"]},"3":{"T":10,"target":"000000000001000100001000100001000100000000000001000100001000100001000100000000000","filled":["001000000010000101010010010111100100011000101011001100000100100001000001010001000","000010010101000100001011101001000110101000000011110000010000110001001000000100100","000100000010010000010000111000100100010000100000010111011111100000010110001000000","010000000010110110000000000010100101000100100010001110100010100001010001001000100","010000000000101000011000101101000100000101010001010000001101001100100010010010010","001000100010101000010000110001010010000000111010100010101010110000001000000000010","000000000000010110010100001001010000001100100011000010101001110000011100010000100","000000000010010101001000110101010110000101000010011101010001000001000100000000010","001001000101001000001101100011000010001011000100000110001100000011101001010001000","000100100100100100001000101001001000000010000011000111001010100001010100010000010","001000000001000010000000110011010111000100010010011110000101000101000010000000100","001000000100011010011000010000010011001101110000010010011001000100010110001000000","000001000001001001101000010001001100011000101001000000101001110000100101000000100","000000100011100010010100100001101110101000010000001000011010010100000101010000000","000000100000100001011001010101100000011000010001001000100111111000000100000010000","000100010000101001101101000000110010000010000000001010001110001100001100010010000","010010000000100100011000001001110110101100000001000000010011001100001110001001000","010000100000001001011111000101000110000011000001000001111000100000011010001000000","000000100010010010001001101001000000111000110000010110010100000100101000001001000","010010000000010100010000101010110000001110000011100001010011100000000110001001000","000000100010010100001001111011000000000000100010010010001111100100010000000010010","000010010101010000001000010000011010100011100000001110001110000010000010010010000","000010000101000010011011000001000010100110101001000110001000100010010001000010010","000000100001000010001000110101000101000111000010000010010001001000111110010001000","000010010011000010000110001100111000010011100000011010100000010011010000000001000","010000000001100010000001100010100110011001100000101000011000100101000101001000100","001001000010000000000111110000010001101001100000100000001000111100010100010010000","010010000000010011001011000100000100001110001001110000000010010100101010000100000","001000100000010010100111010010000000001011010011001000100101100001010000000010010","001000000010011010011000110000100000011001110100101001010110010000001000010010010","001000010010000001001111000000001110010101100000010001100001010011010000000000010","010000100100100010000111000010010010010010010001000100000111000100101001010000010"],"empty":["001000100000110010000010001010001000011010010011001100001110100000111111000100100","000100010011111001000010100101100000000100110010001101001100100011100000000100000","000100010110000100001100010010000000000011000011101010001101100101010011010001000","010000000000011000010000000000010101010011000001101010101101100001000110001001000","010000000001101010010110000100100100000101011011100000011010110110001000001000000","010010010011111110101111101001111100011000010010000010110000000000010000000000000","000000000110101100000000101000111010010110000010001010111000010010100100010000000","001000010110011000011000000011111011001111110110010010000000011000010000010001000","000010000000100100011100100000001011100001100011100000001100010100100110010010000","010001000101010010001011010011000101000000000010001100101110010001101000000000100","010000010011100000101100000000100100000100010110001100001100111010100100000000000","000100100000111100100111110000101000010110010000100100010000110100001000010000010","000010000001010000000010010010100110010110011111110110000000010001011011001000000","000010000011000100000000000000101110110011001011100100011000000111000100001001000","000001000011000100100001111011100010000000010000011000011101100010100000000010010","010010000000100010010100100000000101101110010011111000001000000010011001010000100","000001000000111000010011100000000000100101100001000010011110101101001000010000000","000010000000011100000001010000010010010111111001100010110101110000101100001000000","010000000001001100011100010010110010111101011010000000011011000001101101010000000","001001000000010010000000010110010101010000100011011110110111110000010100000010000","000001000000000010000000010000110000010000100011001101101111110001010010010010000","000000000111011011011010110010101110110111011000010000000001000001000000000000100","001000010001001100110111100011010000010000001111000010011011000011000000000100000","010000010001001110110000100000100010000110001001001100011000010010010000010000010","000100000000001000101001010000001001001101000110010100010010011010010100001000010","000010000000001100100101011010000000011011010000010101100110000010101000000000010","000000000011001001000001000011110010011000100001010000111101001001001010001001000","000000000010001000000001000011110010011000100111010000001101001001001010010010000","010001000001100010000000110001000111011101100100001000000101001000101000000000100","000000100001010100110110000011110010010101000000001010010110000000100100000001000","000010000100001000000110011010101000000010010010100010101011100001001110001001000","010000010011101010000100100000000110000110010011001011011011100111000100001000000"]}}}};
+/* DATA.font            5x7 bitmaps
+   DATA.text.solid/blink {N,H,W,pad,scale,glyphs:{ch:[hexSeed...]}}
+   DATA.tiles.solid/blink[N] {T, target, filled:[...], empty:[...]}  (tile interior I=T-1, strings of 0/1) */
+const $ = id => document.getElementById(id);
+const M = 4;                                   // blank margin around text
 
-// decode hex rows -> 0/1 arrays (each row = ceil(W/4) hex digits)
-for (const mode of ['plain', 'blink']) {
-  const D = DATA[mode], hx = Math.ceil(D.W / 4), re = new RegExp(`.{${hx}}`, 'g');
+// ---------- decode ----------
+for (const D of Object.values(DATA.text)) {
+  const hx = Math.ceil(D.W / 4), re = new RegExp(`.{${hx}}`, 'g');
   D.seeds = {};
   for (const [ch, list] of Object.entries(D.glyphs))
-    D.seeds[ch] = list.map(s => s.match(re).map(h => { const v = parseInt(h, 16); return Array.from({length:D.W}, (_, c) => (v >> (D.W-1-c)) & 1); }));
+    D.seeds[ch] = list.map(s => s.match(re).map(h => { const v = parseInt(h, 16); return Array.from({ length: D.W }, (_, c) => (v >> (D.W - 1 - c)) & 1); }));
 }
-let D, N, H, W, PAD;
-function setMode() {
-  D = DATA[document.getElementById('mode').value]; N = D.N; H = D.H; W = D.W; PAD = D.pad;
-  document.getElementById('nGen').textContent = N;
-  document.getElementById('nGen2').textContent = N;
+const bits01 = s => Uint8Array.from(s, ch => ch === '1');
+for (const style of Object.values(DATA.tiles)) for (const S of Object.values(style)) {
+  S.I = S.T - 1; S.target = bits01(S.target); S.filled = S.filled.map(bits01); S.empty = S.empty.map(bits01);
 }
-setMode();
-const SEEDS = new Proxy({}, { get: (_, k) => D.seeds[k] });
+$('punct').textContent = Object.keys(DATA.font).filter(c => !/[A-Z0-9 ]/.test(c)).join(' ');
 
-let rows = 0, cols = 0, seed = null, grid = null, target = null, gen = 0, timer = null;
+// ---------- state ----------
+let tab = 'text', N = 2, blinking = false;
+let R = 0, C = 0, seed = null, target = null, grid = null, gen = 0, timer = null, label = '';
+let source = null, bits = null, bw = 0, bh = 0;
 
-function layout(text) {
-  const lines = text.toUpperCase().replace(/\r/g, '').split('\n');
-  while (lines.length > 1 && lines[lines.length-1] === '') lines.pop();
-  const width = Math.max(1, ...lines.map(l => [...l].length));
-  rows = lines.length * H + 2*M; cols = width * W + 2*M;
-  seed = new Uint8Array(rows*cols); target = new Uint8Array(rows*cols);
-  lines.forEach((line, li) => [...line].forEach((raw, ci) => {
-    const ch = SEEDS[raw] ? raw : '?';
-    const s = SEEDS[ch][Math.floor(Math.random() * SEEDS[ch].length)];
-    const oy = M + li*H, ox = M + ci*W;
-    for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) seed[(oy+r)*cols + ox+c] = s[r][c];
-    const f = DATA.font[ch], S = D.scale;
-    for (let r = 0; r < 7; r++) for (let c = 0; c < 5; c++) if (f[r][c] === '#') {
-      if (S === 1) target[(oy+PAD+1+r)*cols + ox+PAD+1+c] = 1;
-      else for (let k = 0; k < 3; k++) target[(oy+PAD+1+r*S+1)*cols + ox+PAD+1+c*S+k] = 1;  // one blinker per pixel
+// ---------- Life ----------
+function step(g, R, C) {
+  const n = new Uint8Array(R * C);
+  for (let r = 0; r < R; r++) {
+    const up = r > 0 ? (r - 1) * C : -1, mid = r * C, dn = r < R - 1 ? (r + 1) * C : -1;
+    for (let c = 0; c < C; c++) {
+      const L = c > 0, Rt = c < C - 1;
+      let s = (L ? g[mid + c - 1] : 0) + (Rt ? g[mid + c + 1] : 0);
+      if (up >= 0) s += g[up + c] + (L ? g[up + c - 1] : 0) + (Rt ? g[up + c + 1] : 0);
+      if (dn >= 0) s += g[dn + c] + (L ? g[dn + c - 1] : 0) + (Rt ? g[dn + c + 1] : 0);
+      n[mid + c] = (s === 3 || (s === 2 && g[mid + c])) ? 1 : 0;
     }
-  }));
-}
-
-// one Life step; cells beyond the edge count as dead (same as an infinite empty plane,
-// which is safe because every box keeps its border ring dead)
-function step(g) {
-  const n = new Uint8Array(rows*cols);
-  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
-    let s = 0;
-    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
-      if (!dr && !dc) continue;
-      const rr = r+dr, cc = c+dc;
-      if (rr >= 0 && rr < rows && cc >= 0 && cc < cols) s += g[rr*cols+cc];
-    }
-    const a = g[r*cols+c];
-    n[r*cols+c] = (s === 3 || (a && s === 2)) ? 1 : 0;
   }
   return n;
 }
 
+// ---------- text -> grid ----------
+function layoutText() {
+  const D = DATA.text[blinking ? 'blink' : 'solid'], { H, W, pad: PAD, scale: S } = D;
+  const lines = $('txt').value.toUpperCase().replace(/\r/g, '').split('\n');
+  while (lines.length > 1 && lines[lines.length - 1] === '') lines.pop();
+  const width = Math.max(1, ...lines.map(l => [...l].length));
+  R = lines.length * H + 2 * M; C = width * W + 2 * M;
+  seed = new Uint8Array(R * C); target = new Uint8Array(R * C);
+  lines.forEach((line, li) => [...line].forEach((raw, ci) => {
+    const ch = D.seeds[raw] ? raw : '?';
+    const s = D.seeds[ch][(Math.random() * D.seeds[ch].length) | 0];
+    const oy = M + li * H, ox = M + ci * W;
+    for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) seed[(oy + r) * C + ox + c] = s[r][c];
+    const f = DATA.font[ch];
+    for (let r = 0; r < 7; r++) for (let c = 0; c < 5; c++) if (f[r][c] === '#') {
+      if (S === 1) target[(oy + PAD + 1 + r) * C + ox + PAD + 1 + c] = 1;
+      else for (let k = 0; k < 3; k++) target[(oy + PAD + 1 + r * S + 1) * C + ox + PAD + 1 + c * S + k] = 1;
+    }
+  }));
+  label = $('txt').value.replace(/\n/g, ' / ');
+}
+
+// ---------- image -> 1-bit ----------
+function sampleImage() {
+  const c = document.createElement('canvas'), s = 200;
+  c.width = s; c.height = s; const x = c.getContext('2d');
+  x.fillStyle = '#000'; x.fillRect(0, 0, s, s);
+  x.fillStyle = '#fff'; x.beginPath(); x.arc(100, 100, 88, 0, Math.PI * 2); x.fill();
+  x.fillStyle = '#000';
+  x.beginPath(); x.arc(70, 78, 13, 0, Math.PI * 2); x.fill();
+  x.beginPath(); x.arc(130, 78, 13, 0, Math.PI * 2); x.fill();
+  x.lineWidth = 14; x.strokeStyle = '#000'; x.lineCap = 'round';
+  x.beginPath(); x.arc(100, 105, 48, 0.15 * Math.PI, 0.85 * Math.PI); x.stroke();
+  return c;
+}
+function toBits() {
+  bw = +$('width').value; bh = Math.max(1, Math.round(bw * source.height / source.width));
+  if (bh > 160) { bh = 160; bw = Math.max(1, Math.round(bh * source.width / source.height)); }
+  const c = document.createElement('canvas'); c.width = bw; c.height = bh;
+  const x = c.getContext('2d'); x.imageSmoothingQuality = 'high';
+  x.fillStyle = '#fff'; x.fillRect(0, 0, bw, bh);
+  x.drawImage(source, 0, 0, bw, bh);
+  const px = x.getImageData(0, 0, bw, bh).data, inv = $('invert').checked;
+  const lum = new Float32Array(bw * bh);
+  for (let i = 0; i < bw * bh; i++) {
+    const v = 0.2126 * px[i * 4] + 0.7152 * px[i * 4 + 1] + 0.0722 * px[i * 4 + 2];
+    lum[i] = inv ? 255 - v : v;
+  }
+  const lvl = +$('level').value, mode = $('dither').value;
+  const bayer = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+  bits = new Uint8Array(bw * bh);
+  const spread = (ok, i, e, w) => { if (ok) lum[i] += e * w; };
+  for (let y = 0; y < bh; y++) for (let xx = 0; xx < bw; xx++) {
+    const i = y * bw + xx, v = lum[i];
+    const on = mode === 'bayer' ? v + (bayer[(y & 3) * 4 + (xx & 3)] / 16 - 0.5) * 255 > lvl : v > lvl;
+    bits[i] = on ? 1 : 0;
+    if (mode === 'fs' || mode === 'atk') {
+      const e = v - (on ? 255 : 0), R1 = xx + 1 < bw, R2 = xx + 2 < bw, L1 = xx > 0, D1 = y + 1 < bh, D2 = y + 2 < bh;
+      if (mode === 'fs') {
+        spread(R1, i + 1, e, 7 / 16); spread(D1 && L1, i + bw - 1, e, 3 / 16);
+        spread(D1, i + bw, e, 5 / 16); spread(D1 && R1, i + bw + 1, e, 1 / 16);
+      } else {
+        spread(R1, i + 1, e, 1 / 8); spread(R2, i + 2, e, 1 / 8); spread(D1 && L1, i + bw - 1, e, 1 / 8);
+        spread(D1, i + bw, e, 1 / 8); spread(D1 && R1, i + bw + 1, e, 1 / 8); spread(D2, i + 2 * bw, e, 1 / 8);
+      }
+    }
+  }
+  const p = $('preview'); p.width = bw; p.height = bh;
+  const pc = p.getContext('2d'), im = pc.createImageData(bw, bh);
+  for (let i = 0; i < bw * bh; i++) { const v = bits[i] ? 255 : 0; im.data[i * 4] = im.data[i * 4 + 1] = im.data[i * 4 + 2] = v; im.data[i * 4 + 3] = 255; }
+  pc.putImageData(im, 0, 0);
+  p.style.width = Math.min(160, bw * Math.max(1, Math.floor(160 / bw))) + 'px';
+}
+function layoutImage() {
+  toBits();
+  const S = DATA.tiles[blinking ? 'blink' : 'solid'][N], { T, I } = S;
+  R = bh * T + 1; C = bw * T + 1;
+  seed = new Uint8Array(R * C); target = new Uint8Array(R * C);
+  for (let ty = 0; ty < bh; ty++) for (let tx = 0; tx < bw; tx++) {
+    const on = bits[ty * bw + tx], list = on ? S.filled : S.empty;
+    const t = list[(Math.random() * list.length) | 0];
+    const oy = ty * T + 1, ox = tx * T + 1;
+    for (let r = 0; r < I; r++) {
+      seed.set(t.subarray(r * I, r * I + I), (oy + r) * C + ox);
+      if (on) target.set(S.target.subarray(r * I, r * I + I), (oy + r) * C + ox);
+    }
+  }
+  label = `${bw}x${bh} picture`;
+}
+
+// ---------- verify ----------
 function verify() {
-  let g = seed;
-  for (let i = 0; i < N; i++) g = step(g);
+  let g = seed; for (let i = 0; i < N; i++) g = step(g, R, C);
   let diff = 0; for (let i = 0; i < g.length; i++) diff += g[i] !== target[i];
   let periodic = true;
-  if (D.scale > 1) { const g2 = step(step(g)); for (let i = 0; i < g.length; i++) if (g2[i] !== g[i]) { periodic = false; break; } }
-  const el = document.getElementById('check');
-  el.className = (diff || !periodic) ? 'err' : 'ok';
+  if (blinking && !diff) { const g2 = step(step(g, R, C), R, C); for (let i = 0; i < g.length; i++) if (g2[i] !== g[i]) { periodic = false; break; } }
+  const el = $('check');
+  el.className = diff || !periodic ? 'err' : 'ok';
   el.textContent = diff ? `check failed: ${diff} cells differ`
-    : !periodic ? 'check failed: text does not keep blinking'
-    : `verified: gen ${N} matches your text exactly` + (D.scale > 1 ? ', then blinks forever' : '');
+    : !periodic ? 'check failed: does not keep blinking'
+    : `verified: gen ${N} matches exactly` + (blinking ? ', then blinks forever' : '');
 }
 
-const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+// ---------- drawing ----------
+const cv = $('cv'), ctx = cv.getContext('2d');
+let img = null, px = 1;
 function draw() {
-  const avail = Math.min(cv.parentElement.clientWidth - 16, 1400);
-  const px = Math.max(1, Math.min(10, Math.floor(avail / cols)));
-  cv.width = cols*px; cv.height = rows*px;
-  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cv.width, cv.height);
-  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--cell');
-  const gap = px > 4 ? 1 : 0;
-  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++)
-    if (grid[r*cols+c]) ctx.fillRect(c*px, r*px, px-gap, px-gap);
-  document.getElementById('gen').textContent = `gen ${gen}` + (gen === N ? ' · reveal' : (D.scale > 1 && gen > N ? ' · blinking' : ''));
+  const avail = cv.parentElement.clientWidth - 18;
+  const want = Math.max(1, Math.min(10, Math.floor(avail / C)));
+  if (want !== px || cv.width !== C * want || cv.height !== R * want) {
+    px = want; cv.width = C * px; cv.height = R * px; img = ctx.createImageData(cv.width, cv.height);
+  }
+  const buf = new Uint32Array(img.data.buffer), W = cv.width;
+  const ON = 0xFFB2FF7C, OFF = 0xFF000000;                // little-endian ABGR
+  buf.fill(OFF);
+  const gap = px >= 4 ? 1 : 0, sz = px - gap;
+  for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) if (grid[r * C + c]) {
+    if (px === 1) { buf[r * W + c] = ON; continue; }
+    for (let y = 0; y < sz; y++) buf.fill(ON, (r * px + y) * W + c * px, (r * px + y) * W + c * px + sz);
+  }
+  ctx.putImageData(img, 0, 0);
+  cv.style.width = Math.min(avail, cv.width) + 'px';
+  $('gen').textContent = `gen ${gen}` + (gen === N ? ' · reveal' : (blinking && gen > N ? ' · blinking' : ''));
 }
 
-function stop() { clearInterval(timer); timer = null; document.getElementById('play').textContent = '▶ Play'; }
-function tick() {
-  grid = step(grid); gen++; draw();
-  if (gen === N && document.getElementById('pause').checked) stop();
-}
+function stop() { clearInterval(timer); timer = null; $('play').textContent = '▶ Play'; }
+function tick() { grid = step(grid, R, C); gen++; draw(); if (gen === N && $('pause').checked) stop(); }
 function play() {
   if (timer) return stop();
-  document.getElementById('play').textContent = '❚❚ Pause';
-  const ms = () => 1000 / document.getElementById('speed').value;
-  timer = setInterval(tick, ms());
+  $('play').textContent = '❚❚ Pause';
+  timer = setInterval(tick, 1000 / $('speed').value);
 }
 
+// ---------- RLE ----------
 function rle() {
-  // trim to bounding box
-  let r0 = rows, r1 = -1, c0 = cols, c1 = -1;
-  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) if (seed[r*cols+c]) {
-    r0 = Math.min(r0, r); r1 = Math.max(r1, r); c0 = Math.min(c0, c); c1 = Math.max(c1, c); }
+  let r0 = R, r1 = -1, c0 = C, c1 = -1;
+  for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) if (seed[r * C + c]) {
+    if (r < r0) r0 = r; if (r > r1) r1 = r; if (c < c0) c0 = c; if (c > c1) c1 = c; }
   if (r1 < 0) return 'x = 0, y = 0, rule = B3/S23\n!';
-  let out = '', line = '';
-  const push = (n, t) => { const tok = (n > 1 ? n : '') + t; if (line.length + tok.length > 70) { out += line + '\n'; line = ''; } line += tok; };
-  let blankRows = 0;
+  const out = []; let line = '';
+  const push = (n, t) => { const tok = (n > 1 ? n : '') + t; if (line.length + tok.length > 70) { out.push(line); line = ''; } line += tok; };
+  let pending = 0;
   for (let r = r0; r <= r1; r++) {
-    let runs = [], cur = seed[r*cols+c0], n = 0;
-    for (let c = c0; c <= c1; c++) { const v = seed[r*cols+c]; if (v === cur) n++; else { runs.push([n, cur]); cur = v; n = 1; } }
-    runs.push([n, cur]);
-    if (runs.length && runs[runs.length-1][1] === 0) runs.pop();
-    if (!runs.length) { blankRows++; continue; }
-    if (r > r0) push(blankRows + 1, '$');
-    blankRows = 0;
-    for (const [k, v] of runs) push(k, v ? 'o' : 'b');
+    let end = c1; while (end >= c0 && !seed[r * C + end]) end--;
+    if (end < c0) { pending++; continue; }
+    if (r > r0) push(pending + 1, '$');
+    pending = 0;
+    let c = c0;
+    while (c <= end) { const v = seed[r * C + c]; let k = 0; while (c <= end && seed[r * C + c] === v) { k++; c++; } push(k, v ? 'o' : 'b'); }
   }
-  out += line + '!';
-  const text = document.getElementById('txt').value.replace(/\n/g, ' / ');
-  return `#N Life Writer\n#C Reveals "${text}" at generation ${N}\nx = ${c1-c0+1}, y = ${r1-r0+1}, rule = B3/S23\n` + out;
+  out.push(line + '!');
+  return `#N Game of Life Painter\n#C ${label.replace(/[\r\n]/g, ' ')}: revealed at generation ${N}${blinking ? ', then blinks forever' : ''}\n` +
+         `x = ${c1 - c0 + 1}, y = ${r1 - r0 + 1}, rule = B3/S23\n` + out.join('\n');
 }
 
+// ---------- tile illustration ----------
+function drawTile(id, t, I, gens) {
+  const S = I + 2;
+  let g = new Uint8Array(S * S);
+  for (let r = 0; r < I; r++) for (let c = 0; c < I; c++) g[(r + 1) * S + c + 1] = t[r * I + c];
+  for (let i = 0; i < gens; i++) g = step(g, S, S);
+  const cvs = $(id); cvs.width = S; cvs.height = S;
+  const x = cvs.getContext('2d'), im = x.createImageData(S, S), b = new Uint32Array(im.data.buffer);
+  for (let i = 0; i < g.length; i++) b[i] = g[i] ? 0xFFB2FF7C : 0xFF000000;
+  x.putImageData(im, 0, 0);
+}
+function drawTiles() {
+  const S = DATA.tiles[blinking ? 'blink' : 'solid'][N];
+  drawTile('tf', S.filled[0], S.I, 0); drawTile('tfr', S.filled[0], S.I, N);
+  drawTile('te', S.empty[0], S.I, 0); drawTile('ter', S.empty[0], S.I, N);
+}
+
+// ---------- build ----------
+function syncControls() {
+  // text seeds exist for 2 generations only
+  const g3 = $('gens').options[1];
+  g3.disabled = tab === 'text';
+  if (tab === 'text' && $('gens').value === '3') $('gens').value = '2';
+  $('note').hidden = tab !== 'text';
+  $('note').textContent = 'Text is available at 2 generations; switch to Image for 3.';
+  N = +$('gens').value; blinking = $('style').value === 'blink';
+  document.querySelectorAll('.nGen').forEach(e => e.textContent = N);
+}
 function build() {
-  stop(); layout(document.getElementById('txt').value);
-  grid = seed; gen = 0; draw(); verify();
-  document.getElementById('rle').textContent = rle();
+  stop(); syncControls();
+  if (tab === 'text') layoutText(); else layoutImage();
+  grid = seed; gen = 0; draw(); verify(); drawTiles();
+  $('size').textContent = (tab === 'image' ? `${bw}×${bh} px → ` : '') + `${C}×${R} cells`;
+  const text = rle();
+  $('rle').dataset.full = text;
+  $('rle').textContent = text.length > 200000 ? text.slice(0, 200000) + '\n… (cut off here; use Download for the full file)' : text;
+  $('rlesize').textContent = `${Math.max(1, Math.round(text.length / 1024))} KB`;
 }
+let deb = null; const rebuild = () => { clearTimeout(deb); deb = setTimeout(build, 120); };
 
-document.getElementById('build').onclick = build;
-document.getElementById('mode').onchange = () => {
-  setMode(); document.getElementById('pause').checked = D.scale === 1; build();
-};
-document.getElementById('play').onclick = play;
-document.getElementById('step').onclick = () => { stop(); tick(); };
-document.getElementById('reset').onclick = () => { stop(); grid = seed; gen = 0; draw(); };
-document.getElementById('speed').oninput = () => { if (timer) { stop(); play(); } };
-document.getElementById('copy').onclick = async e => {
-  try { await navigator.clipboard.writeText(document.getElementById('rle').textContent); e.target.textContent = 'Copied ✓'; }
-  catch { e.target.textContent = 'Select text below'; }
+// ---------- wiring ----------
+document.querySelectorAll('.tab').forEach(b => b.onclick = () => {
+  tab = b.dataset.tab;
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === b));
+  $('p-text').hidden = tab !== 'text'; $('p-image').hidden = tab !== 'image';
+  build();
+});
+function loadFile(f) {
+  if (!f || !f.type.startsWith('image/')) return;
+  const im = new Image();
+  im.onload = () => { const c = document.createElement('canvas'); c.width = im.naturalWidth; c.height = im.naturalHeight;
+    c.getContext('2d').drawImage(im, 0, 0); source = c; URL.revokeObjectURL(im.src);
+    if (tab !== 'image') document.querySelector('.tab[data-tab=image]').click(); else build(); };
+  im.src = URL.createObjectURL(f);
+}
+$('pick').onclick = () => $('file').click();
+$('file').onchange = e => loadFile(e.target.files[0]);
+const drop = $('drop');
+['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => loadFile(e.dataTransfer.files[0]));
+addEventListener('paste', e => { for (const it of e.clipboardData.items) if (it.type.startsWith('image/')) return loadFile(it.getAsFile()); });
+
+$('width').oninput = () => { $('wv').textContent = $('width').value; rebuild(); };
+['dither', 'level', 'invert', 'gens'].forEach(id => $(id).addEventListener('input', rebuild));
+$('style').addEventListener('input', () => { $('pause').checked = $('style').value !== 'blink'; rebuild(); });
+$('txt').addEventListener('input', rebuild);
+$('build').onclick = build;
+$('play').onclick = play;
+$('step').onclick = () => { stop(); tick(); };
+$('reset').onclick = () => { stop(); grid = seed; gen = 0; draw(); };
+$('speed').oninput = () => { if (timer) { stop(); play(); } };
+$('copy').onclick = async e => {
+  try { await navigator.clipboard.writeText($('rle').dataset.full); e.target.textContent = 'Copied ✓'; }
+  catch { e.target.textContent = 'Use Download'; }
   setTimeout(() => e.target.textContent = 'Copy RLE', 1500);
 };
-document.getElementById('dl').onclick = () => {
+$('dl').onclick = () => {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([document.getElementById('rle').textContent], {type:'text/plain'}));
-  a.download = 'life-writer.rle'; a.click();
+  a.href = URL.createObjectURL(new Blob([$('rle').dataset.full], { type: 'text/plain' }));
+  a.download = 'life-painter.rle'; a.click();
 };
 addEventListener('resize', () => grid && draw());
+
+source = sampleImage(); $('dither').value = 'thr';
 build();
 </script>
 </body>
