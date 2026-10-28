@@ -114,11 +114,15 @@ WORLD!</textarea>
   <section class="graph" id="graph" hidden>
     <div class="ghead">
       <b>Change per generation</b>
-      <span class="help">share of all cells on the board that flipped since the previous generation</span>
+      <span class="help"><span style="color:#7CFFB2">━ cells flipped</span> (share of all cells that changed since the previous generation) ·
+      <span style="color:#FFB454">━ Levenshtein</span> (row-by-row edit distance from the previous generation, so things that only shifted count less)</span>
     </div>
     <div class="gwrap"><canvas id="gcv"></canvas><div id="gtip"></div></div>
     <div class="row status" style="margin:6px 0"><span id="gstats">Press Play, Step or Continue to start recording.</span></div>
     <div class="row" style="margin:0">
+      <label title="Most edits counted per row, as a share of the row length. Higher = more exact but slower.">Levenshtein tolerance
+        <input type="number" id="ltol" min="0" max="100" step="1" value="10" style="width:64px;background:#0b0c0f;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px 6px"> %</label>
+      <span class="help" id="ltolnote"></span>
       <label><input type="checkbox" id="gfull"> Full 0–100% scale</label>
       <button id="gcsv">Export CSV</button><button id="gtxt">Export text</button><button id="gpng">Export graph PNG</button>
     </div>
@@ -421,7 +425,81 @@ function resetWorld() { grid = seed.slice(); R = R0; C = C0; gen = 0; resetTrack
 // Each tracked step also counts flipped cells and fingerprints the new board (two 32-bit hashes),
 // so spotting a repeat only needs the last 10 fingerprints, not 10 copies of the board.
 const MAX_PERIOD = 10;
-let tGen = [], tDiff = [], tRing = [], tReason = '', tCells = 0, gDirty = false;
+let tGen = [], tDiff = [], tLev = [], tRing = [], tReason = '', tCells = 0, gDirty = false, tTol = 10;
+
+// Levenshtein per row: each row vs the same row one generation earlier. Edits per row are capped at
+// k = tolerance% of the row length (a banded/Ukkonen DP: exact whenever the true distance is <= k).
+// Unchanged rows cost nothing, and the matching start/end of each row pair is trimmed off first.
+let lvA = new Int32Array(1), lvB = new Int32Array(1);
+function bandLev(a, b, o, n, k) {
+  const W = 2 * k + 1, INF = 1e9;
+  if (lvA.length < W) { lvA = new Int32Array(W); lvB = new Int32Array(W); }
+  let prev = lvA, cur = lvB;
+  for (let d = 0; d < W; d++) { const j = d - k; prev[d] = j >= 0 && j <= n ? j : INF; }
+  for (let i = 1; i <= n; i++) {
+    let rowMin = INF;
+    for (let d = 0; d < W; d++) {
+      const j = i + d - k;
+      if (j < 0 || j > n) { cur[d] = INF; continue; }
+      let v;
+      if (j === 0) v = i;
+      else {
+        v = prev[d] + (a[o + i - 1] !== b[o + j - 1] ? 1 : 0);                 // substitute / match
+        if (d + 1 < W && prev[d + 1] + 1 < v) v = prev[d + 1] + 1;           // delete
+        if (d > 0 && cur[d - 1] + 1 < v) v = cur[d - 1] + 1;                 // insert
+      }
+      cur[d] = v; if (v < rowMin) rowMin = v;
+    }
+    if (rowMin >= k) return k;                                               // already at the cap
+    const tmp = prev; prev = cur; cur = tmp;
+  }
+  return Math.min(prev[k], k);
+}
+// Bit-parallel exact edit distance (Myers 1999 / Hyyro 2001), 32 cells per operation, multi-word.
+let mPv = new Uint32Array(1), mMv = new Uint32Array(1), mEq0 = new Uint32Array(1), mEq1 = new Uint32Array(1);
+function myersLev(a, b, o, m) {
+  const W = (m + 31) >>> 5;
+  if (mPv.length < W) { mPv = new Uint32Array(W); mMv = new Uint32Array(W); mEq0 = new Uint32Array(W); mEq1 = new Uint32Array(W); }
+  mEq0.fill(0, 0, W); mEq1.fill(0, 0, W);
+  for (let i = 0; i < m; i++) { if (a[o + i]) mEq1[i >>> 5] |= 1 << (i & 31); else mEq0[i >>> 5] |= 1 << (i & 31); }
+  mPv.fill(0xFFFFFFFF, 0, W); mMv.fill(0, 0, W);
+  const lastW = W - 1, hb = 1 << ((m - 1) & 31);
+  let score = m;
+  for (let j = 0; j < m; j++) {
+    const E = b[o + j] ? mEq1 : mEq0;
+    let carry = 0, phIn = 1, mhIn = 0;                 // global alignment: top row grows by 1 each step
+    for (let w = 0; w < W; w++) {
+      const Pv = mPv[w], Mv = mMv[w], Eq = E[w];
+      const Xv = (Eq | Mv) >>> 0;
+      const s = ((Eq & Pv) >>> 0) + Pv + carry;      // >>> 0: keep it unsigned before adding                 // add with carry across words
+      carry = s > 0xFFFFFFFF ? 1 : 0;
+      const Xh = (((s >>> 0) ^ Pv) | Eq) >>> 0;
+      let Ph = (Mv | ~(Xh | Pv)) >>> 0, Mh = (Pv & Xh) >>> 0;
+      if (w === lastW) { if (Ph & hb) score++; else if (Mh & hb) score--; }
+      const phOut = Ph >>> 31, mhOut = Mh >>> 31;
+      Ph = ((Ph << 1) | phIn) >>> 0; Mh = ((Mh << 1) | mhIn) >>> 0;
+      phIn = phOut; mhIn = mhOut;
+      mPv[w] = (Mh | ~(Xv | Ph)) >>> 0; mMv[w] = (Ph & Xv) >>> 0;
+    }
+  }
+  return score;
+}
+function levBoard(a, b, R, C, tolPct) {
+  const k = Math.round(tolPct / 100 * C);
+  if (k <= 0) return 0;
+  let total = 0;
+  for (let r = 0; r < R; r++) {
+    const row = r * C;
+    let p = 0; while (p < C && a[row + p] === b[row + p]) p++;
+    if (p === C) continue;                                                   // row unchanged
+    let s = 0; while (s < C - p && a[row + C - 1 - s] === b[row + C - 1 - s]) s++;
+    const n = C - p - s;
+    const kk = Math.min(k, n);
+    // small cap: the banded DP is cheaper; otherwise the bit-parallel one
+    total += (2 * kk + 1) * 2 < ((n + 31) >>> 5) ? bandLev(a, b, row + p, n, kk) : Math.min(kk, myersLev(a, b, row + p, n));
+  }
+  return total;
+}
 const tracking = () => $('track').checked;
 function hashGrid(g) {
   let h1 = 0x811C9DC5, h2 = 0, n = 0;
@@ -429,7 +507,8 @@ function hashGrid(g) {
   return [h1 >>> 0, h2 >>> 0, n];
 }
 function resetTrack() {
-  tGen = []; tDiff = []; tReason = ''; tCells = R0 * C0;
+  tGen = []; tDiff = []; tLev = []; tReason = ''; tCells = R0 * C0;
+  if ($('ltol')) { $('ltol').disabled = false; $('ltolnote').textContent = ''; }
   tRing = grid ? [hashGrid(grid)] : [];
   gDirty = true; if (!$('graph').hidden) drawGraph();
 }
@@ -453,7 +532,11 @@ function stepTracked(g, R, C) {
   return { g: n, diff, h: [h1 >>> 0, h2 >>> 0, pop] };
 }
 function record(res) {
-  tGen.push(gen); tDiff.push(res.diff);
+  if (!tDiff.length) {                                     // tolerance is fixed once recording starts
+    tTol = Math.max(0, Math.min(100, +$('ltol').value || 0)); $('ltol').value = tTol;
+    $('ltol').disabled = true; $('ltolnote').textContent = '(locked while recording; Back to seed to change)';
+  }
+  tGen.push(gen); tDiff.push(res.diff); tLev.push(res.lev);
   // repeating? compare with the fingerprints of the previous 1..10 generations
   for (let p = 1; p <= tRing.length; p++) {
     const o = tRing[tRing.length - p];
@@ -471,7 +554,9 @@ function gStats() {
   if (!tDiff.length) return 'Press Play, Step or Continue to start recording.';
   const last = tDiff[tDiff.length - 1];
   let mx = 0, sum = 0; for (const d of tDiff) { if (d > mx) mx = d; sum += d; }
-  return `gens ${tGen[0]}–${tGen[tGen.length - 1]} · last ${pct(last).toFixed(4)}% · max ${pct(mx).toFixed(4)}% · mean ${pct(sum / tDiff.length).toFixed(4)}%` +
+  let lmx = 0, lsum = 0; for (const d of tLev) { if (d > lmx) lmx = d; lsum += d; }
+  return `gens ${tGen[0]}–${tGen[tGen.length - 1]} · flipped: last ${pct(last).toFixed(4)}% max ${pct(mx).toFixed(4)}% mean ${pct(sum / tDiff.length).toFixed(4)}%` +
+    ` · Levenshtein (${tTol}% tolerance): last ${pct(tLev[tLev.length - 1]).toFixed(4)}% max ${pct(lmx).toFixed(4)}% mean ${pct(lsum / tLev.length).toFixed(4)}%` +
     (tReason ? ` · stopped: ${tReason}` : timer ? ' · recording…' : ' · paused');
 }
 
@@ -512,21 +597,27 @@ function drawGraph(forExport) {
     g.fillStyle = '#7CFFB2'; g.textAlign = 'left'; g.textBaseline = 'top'; g.fillText('reveal', X(N) + 4, GM.t + 2);
   }
   // data: a plain line when it fits, otherwise min/max per pixel column
-  if (n) {
-    g.strokeStyle = '#7CFFB2'; g.lineWidth = 1.5; g.beginPath();
+  const series = (arr, color) => {
+    g.strokeStyle = color; g.lineWidth = 1.5; g.beginPath();
     if (n <= pw * 2) {
-      for (let i = 0; i < n; i++) { const x = X(tGen[i]), y = Y(pct(tDiff[i])); i ? g.lineTo(x, y) : g.moveTo(x, y); }
+      for (let i = 0; i < n; i++) { const x = X(tGen[i]), y = Y(pct(arr[i])); i ? g.lineTo(x, y) : g.moveTo(x, y); }
     } else {
       let col = -1, lo = 0, hi = 0, first = true;
       const flush = () => { if (col < 0) return; const x = GM.l + col + .5; if (first) { g.moveTo(x, Y(hi)); first = false; } else g.lineTo(x, Y(hi)); g.lineTo(x, Y(lo)); };
       for (let i = 0; i < n; i++) {
-        const c = Math.floor((X(tGen[i]) - GM.l)), v = pct(tDiff[i]);
+        const c = Math.floor((X(tGen[i]) - GM.l)), v = pct(arr[i]);
         if (c !== col) { flush(); col = c; lo = hi = v; } else { if (v < lo) lo = v; if (v > hi) hi = v; }
       }
       flush();
     }
     g.stroke();
-  }
+  };
+  if (n) { series(tDiff, '#7CFFB2'); series(tLev, '#FFB454'); }
+  // legend
+  g.textAlign = 'right'; g.textBaseline = 'top'; g.font = '11px ui-monospace, Menlo, monospace';
+  const lx = GM.l + pw - 8;
+  g.fillStyle = '#7CFFB2'; g.fillText('━ cells flipped', lx, GM.t + 6);
+  g.fillStyle = '#FFB454'; g.fillText(`━ Levenshtein (${tTol}% tol.)`, lx, GM.t + 20);
   g.strokeStyle = '#2a2d35'; g.lineWidth = 1; g.strokeRect(GM.l + .5, GM.t + .5, pw, ph);
   if (forExport) {
     g.fillStyle = '#e6e6e6'; g.textAlign = 'left'; g.textBaseline = 'top';
@@ -542,19 +633,22 @@ gcv.addEventListener('pointermove', e => {
   const gv = Math.round(gScale.g0 + (x - GM.l) / gScale.pw * (gScale.g1 - gScale.g0));
   const i = gv - tGen[0];
   if (i < 0 || i >= tDiff.length || tGen[i] !== gv) return (tip.style.display = 'none');
-  tip.textContent = `gen ${gv}: ${pct(tDiff[i]).toFixed(4)}%`;
-  tip.style.display = 'block'; tip.style.left = Math.min(b.width - 150, x + 10) + 'px'; tip.style.top = '8px';
+  tip.textContent = `gen ${gv}: flipped ${pct(tDiff[i]).toFixed(4)}% · Levenshtein ${pct(tLev[i]).toFixed(4)}%`;
+  tip.style.display = 'block'; tip.style.left = Math.max(0, Math.min(b.width - 330, x + 10)) + 'px'; tip.style.top = '8px';
 });
 gcv.addEventListener('pointerleave', () => $('gtip').style.display = 'none');
 function save(name, blob) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }
-$('gcsv').onclick = () => save('life-painter-changes.csv', new Blob(['generation,percent_change\n' +
-  tGen.map((g, i) => `${g},${pct(tDiff[i]).toFixed(4)}`).join('\n') + '\n'], { type: 'text/csv' }));
+$('gcsv').onclick = () => save('life-painter-changes.csv', new Blob([`generation,percent_change,levenshtein_percent_tol${tTol}\n` +
+  tGen.map((g, i) => `${g},${pct(tDiff[i]).toFixed(4)},${pct(tLev[i]).toFixed(4)}`).join('\n') + '\n'], { type: 'text/csv' }));
 $('gtxt').onclick = () => {
   const head = [`Game of Life Painter: change per generation`, `Source: ${label.replace(/[\r\n]/g, ' ')}`,
     `Board: ${C0} x ${R0} cells (${tCells} cells, fixed edges), reveal at generation ${N}${blinking ? ', blink forever on' : ''}`,
-    `Stopped: ${tReason || 'by user (or still running)'}`, `Percent = cells that flipped since the previous generation / all cells x 100`, '',
-    'generation  percent_change'];
-  save('life-painter-changes.txt', new Blob([head.join('\n') + '\n' + tGen.map((g, i) => `${String(g).padStart(10)}  ${pct(tDiff[i]).toFixed(4).padStart(14)}`).join('\n') + '\n'], { type: 'text/plain' }));
+    `Stopped: ${tReason || 'by user (or still running)'}`, `percent_change = cells that flipped since the previous generation / all cells x 100`,
+    `levenshtein = sum over rows of the edit distance between each row and the same row one generation earlier,`,
+    `              capped at ${tTol}% of the row length per row (${Math.round(tTol / 100 * C0)} edits), / all cells x 100`, '',
+    'generation  percent_change  levenshtein'];
+  save('life-painter-changes.txt', new Blob([head.join('\n') + '\n' + tGen.map((g, i) =>
+    `${String(g).padStart(10)}  ${pct(tDiff[i]).toFixed(4).padStart(14)}  ${pct(tLev[i]).toFixed(4).padStart(11)}`).join('\n') + '\n'], { type: 'text/plain' }));
 };
 $('gpng').onclick = () => { drawGraph(true); gcv.toBlob(b => { save('life-painter-changes.png', b); drawGraph(); }); };
 $('gfull').addEventListener('input', () => drawGraph());
@@ -631,7 +725,11 @@ $('zfit').onclick = () => { viewStack = []; fitPicture(); draw(); };
 
 function stop() { clearInterval(timer); timer = null; gDirty = true; $('play').textContent = '▶ Play'; if (grid && view) draw(); }
 function tick() {
-  if (tracking()) { const res = stepTracked(grid, R, C); grid = res.g; gen++; record(res); }
+  if (tracking()) {
+    const prev = grid, res = stepTracked(grid, R, C);
+    res.lev = levBoard(prev, res.g, R, C, tDiff.length ? tTol : Math.max(0, Math.min(100, +$('ltol').value || 0)));
+    grid = res.g; gen++; record(res);
+  }
   else { grid = step(grid, R, C); gen++; }
   draw();
   if (tracking() && tReason) { stop(); return; }           // board is repeating: nothing new will happen
