@@ -28,7 +28,19 @@
   .drop { display:flex; gap:14px; align-items:center; flex-wrap:wrap; border:1px dashed transparent; border-radius:8px; }
   .drop.over { border-color:var(--accent); }
   #preview { image-rendering:pixelated; background:#000; border:1px solid var(--line); border-radius:4px; max-width:160px; max-height:120px; }
-  .stage { background:#000; border:1px solid var(--line); border-radius:8px; padding:8px; overflow:auto; }
+  .stage { background:#000; border:1px solid var(--line); border-radius:8px; padding:8px; overflow:hidden; }
+  .cvwrap { position:relative; width:fit-content; margin:auto; }
+  #cv { cursor:crosshair; touch-action:none; }
+  #sel { position:absolute; border:1px solid var(--accent); background:rgba(124,255,178,.12); pointer-events:none; display:none; }
+  .viewbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:8px 0 0; }
+  .viewbar button { padding:5px 10px; font-size:14px; }
+  .graph { margin-top:14px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; }
+  .graph[hidden] { display:none; }
+  .ghead { display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; margin-bottom:8px; }
+  .gwrap { position:relative; }
+  #gcv { display:block; width:100%; height:230px; background:#0b0c0f; border-radius:6px; }
+  #gtip { position:absolute; pointer-events:none; background:#000c; border:1px solid var(--line); border-radius:6px; padding:3px 7px;
+    font:12px ui-monospace, Menlo, monospace; display:none; white-space:nowrap; }
   #cv { display:block; image-rendering:pixelated; margin:auto; max-width:100%; }
   .status { font:13px ui-monospace, Menlo, monospace; color:var(--dim); }
   .ok { color:var(--accent); } .err { color:var(--bad); }
@@ -80,15 +92,35 @@ WORLD!</textarea>
     <label>Generations <select id="gens"><option value="2">2</option><option value="3">3</option></select></label>
     <button class="primary" id="build">Scramble</button>
     <button id="play">▶ Play</button>
+    <button id="cont" hidden title="Keep running past the reveal">Continue ▶▶</button>
     <button id="step">Step</button>
     <button id="reset">Back to seed</button>
     <label><input type="checkbox" id="pause" checked> Pause on reveal</label>
+    <label title="Plot how much of the board changes each generation"><input type="checkbox" id="track"> Graph changes</label>
     <label>Speed <input type="range" id="speed" min="1" max="30" value="4"></label>
   </div>
   <p class="help" id="note" hidden></p>
 
-  <div class="stage"><canvas id="cv"></canvas></div>
+  <div class="stage"><div class="cvwrap"><canvas id="cv"></canvas><div id="sel"></div></div></div>
+  <div class="viewbar">
+    <span class="help">Drag on the grid to zoom in. The zoom stays when you go back to the seed, so you can watch that part form again.</span>
+    <button id="zout" hidden>Zoom out</button>
+    <button id="zfit" hidden>Whole picture</button>
+  </div>
   <div class="row status"><span id="gen">gen 0</span> · <span id="size"></span> · <span id="check"></span></div>
+
+  <section class="graph" id="graph" hidden>
+    <div class="ghead">
+      <b>Change per generation</b>
+      <span class="help">share of all cells on the board that flipped since the previous generation</span>
+    </div>
+    <div class="gwrap"><canvas id="gcv"></canvas><div id="gtip"></div></div>
+    <div class="row status" style="margin:6px 0"><span id="gstats">Press Play, Step or Continue to start recording.</span></div>
+    <div class="row" style="margin:0">
+      <label><input type="checkbox" id="gfull"> Full 0–100% scale</label>
+      <button id="gcsv">Export CSV</button><button id="gtxt">Export text</button><button id="gpng">Export graph PNG</button>
+    </div>
+  </section>
 
   <details open>
     <summary>Export seed (RLE)</summary>
@@ -378,34 +410,227 @@ function verify() {
     : `verified: gen ${N} matches exactly` + (blinking ? ', then blinks forever' : '');
 }
 
-// ---------- drawing ----------
-const cv = $('cv'), ctx = cv.getContext('2d');
-let img = null, px = 1;
-function draw() {
-  const avail = cv.parentElement.clientWidth - 18;
-  const want = Math.max(1, Math.min(10, Math.floor(avail / C)));
-  if (want !== px || cv.width !== C * want || cv.height !== R * want) {
-    px = want; cv.width = C * px; cv.height = R * px; img = ctx.createImageData(cv.width, cv.height);
+// ---------- board: a fixed box; cells outside it always count as dead, so things stop at the edges ----------
+let R0 = 0, C0 = 0;
+const ox = 0, oy = 0;
+function resetWorld() { grid = seed.slice(); R = R0; C = C0; gen = 0; resetTrack(); }
+
+// ---------- change graph ----------
+// Each tracked step also counts flipped cells and fingerprints the new board (two 32-bit hashes),
+// so spotting a repeat only needs the last 10 fingerprints, not 10 copies of the board.
+const MAX_PERIOD = 10;
+let tGen = [], tDiff = [], tRing = [], tReason = '', tCells = 0, gDirty = false;
+const tracking = () => $('track').checked;
+function hashGrid(g) {
+  let h1 = 0x811C9DC5, h2 = 0, n = 0;
+  for (let i = 0; i < g.length; i++) if (g[i]) { h1 = Math.imul(h1 ^ i, 0x01000193); h2 = (h2 + Math.imul(i ^ (i >>> 15), 0x9E3779B1)) | 0; n++; }
+  return [h1 >>> 0, h2 >>> 0, n];
+}
+function resetTrack() {
+  tGen = []; tDiff = []; tReason = ''; tCells = R0 * C0;
+  tRing = grid ? [hashGrid(grid)] : [];
+  gDirty = true; if (!$('graph').hidden) drawGraph();
+}
+// one generation + change count + fingerprint, in a single pass
+function stepTracked(g, R, C) {
+  const n = new Uint8Array(R * C);
+  let diff = 0, h1 = 0x811C9DC5, h2 = 0, pop = 0;
+  for (let r = 0; r < R; r++) {
+    const up = r > 0 ? (r - 1) * C : -1, mid = r * C, dn = r < R - 1 ? (r + 1) * C : -1;
+    for (let c = 0; c < C; c++) {
+      const L = c > 0, Rt = c < C - 1, i = mid + c;
+      let s = (L ? g[i - 1] : 0) + (Rt ? g[i + 1] : 0);
+      if (up >= 0) s += g[up + c] + (L ? g[up + c - 1] : 0) + (Rt ? g[up + c + 1] : 0);
+      if (dn >= 0) s += g[dn + c] + (L ? g[dn + c - 1] : 0) + (Rt ? g[dn + c + 1] : 0);
+      const v = (s === 3 || (s === 2 && g[i])) ? 1 : 0;
+      n[i] = v;
+      if (v !== g[i]) diff++;
+      if (v) { h1 = Math.imul(h1 ^ i, 0x01000193); h2 = (h2 + Math.imul(i ^ (i >>> 15), 0x9E3779B1)) | 0; pop++; }
+    }
   }
-  const buf = new Uint32Array(img.data.buffer), W = cv.width;
-  const ON = 0xFFB2FF7C, OFF = 0xFF000000;                // little-endian ABGR
-  buf.fill(OFF);
-  const gap = px >= 4 ? 1 : 0, sz = px - gap;
-  for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) if (grid[r * C + c]) {
-    if (px === 1) { buf[r * W + c] = ON; continue; }
-    for (let y = 0; y < sz; y++) buf.fill(ON, (r * px + y) * W + c * px, (r * px + y) * W + c * px + sz);
+  return { g: n, diff, h: [h1 >>> 0, h2 >>> 0, pop] };
+}
+function record(res) {
+  tGen.push(gen); tDiff.push(res.diff);
+  // repeating? compare with the fingerprints of the previous 1..10 generations
+  for (let p = 1; p <= tRing.length; p++) {
+    const o = tRing[tRing.length - p];
+    if (o[0] === res.h[0] && o[1] === res.h[1] && o[2] === res.h[2]) {
+      tReason = p === 1 ? `board stopped changing at generation ${gen - 1}`
+        : `board repeats every ${p} generations (cycle reached by generation ${gen - p})`;
+      break;
+    }
   }
-  ctx.putImageData(img, 0, 0);
-  cv.style.width = Math.min(avail, cv.width) + 'px';
-  $('gen').textContent = `gen ${gen}` + (gen === N ? ' · reveal' : (blinking && gen > N ? ' · blinking' : ''));
+  tRing.push(res.h); if (tRing.length > MAX_PERIOD) tRing.shift();
+  gDirty = true;
+}
+const pct = d => (d / tCells * 100);
+function gStats() {
+  if (!tDiff.length) return 'Press Play, Step or Continue to start recording.';
+  const last = tDiff[tDiff.length - 1];
+  let mx = 0, sum = 0; for (const d of tDiff) { if (d > mx) mx = d; sum += d; }
+  return `gens ${tGen[0]}–${tGen[tGen.length - 1]} · last ${pct(last).toFixed(4)}% · max ${pct(mx).toFixed(4)}% · mean ${pct(sum / tDiff.length).toFixed(4)}%` +
+    (tReason ? ` · stopped: ${tReason}` : timer ? ' · recording…' : ' · paused');
 }
 
-function stop() { clearInterval(timer); timer = null; $('play').textContent = '▶ Play'; }
-function tick() { grid = step(grid, R, C); gen++; draw(); if (gen === N && $('pause').checked) stop(); }
+const gcv = $('gcv'), gctx = gcv.getContext('2d');
+const GM = { l: 64, r: 14, t: 14, b: 30 };
+let gScale = null;
+function niceStep(range, n) { const raw = range / n, p = 10 ** Math.floor(Math.log10(raw)), m = raw / p; return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p; }
+function drawGraph(forExport) {
+  const dpr = forExport ? 2 : (devicePixelRatio || 1), Wc = gcv.clientWidth || 800, Hc = 230;
+  gcv.width = Wc * dpr; gcv.height = Hc * dpr;
+  const g = gctx; g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = '#0b0c0f'; g.fillRect(0, 0, Wc, Hc);
+  const pw = Wc - GM.l - GM.r, ph = Hc - GM.t - GM.b, n = tDiff.length;
+  let ymax = 100;
+  if (!$('gfull').checked) { let mx = 0; for (const d of tDiff) if (d > mx) mx = d; ymax = Math.min(100, Math.max(0.01, pct(mx) * 1.15)); }
+  const g0 = n ? tGen[0] : 1, g1 = Math.max(g0 + 20, n ? tGen[n - 1] : 1);
+  const X = gv => GM.l + (gv - g0) / (g1 - g0) * pw, Y = v => GM.t + ph - v / ymax * ph;
+  gScale = { X, g0, g1, pw };
+  g.font = '11px ui-monospace, Menlo, monospace'; g.lineWidth = 1;
+  // y grid
+  const ys = niceStep(ymax, 4), dec = Math.max(0, Math.min(4, -Math.floor(Math.log10(ys))));
+  g.textAlign = 'right'; g.textBaseline = 'middle';
+  for (let v = 0; v <= ymax + 1e-9; v += ys) {
+    g.strokeStyle = '#22252c'; g.beginPath(); g.moveTo(GM.l, Y(v) + .5); g.lineTo(GM.l + pw, Y(v) + .5); g.stroke();
+    g.fillStyle = '#8a8f99'; g.fillText(v.toFixed(dec) + '%', GM.l - 6, Y(v));
+  }
+  // x grid
+  const xs = Math.max(1, niceStep(g1 - g0, 8));
+  g.textAlign = 'center'; g.textBaseline = 'top';
+  for (let v = Math.ceil(g0 / xs) * xs; v <= g1; v += xs) {
+    g.strokeStyle = '#1a1c22'; g.beginPath(); g.moveTo(X(v) + .5, GM.t); g.lineTo(X(v) + .5, GM.t + ph); g.stroke();
+    g.fillStyle = '#8a8f99'; g.fillText(String(v), X(v), GM.t + ph + 6);
+  }
+  g.fillText('generation', GM.l + pw / 2, Hc - 12 > GM.t + ph + 18 ? GM.t + ph + 18 : Hc - 12);
+  // reveal marker
+  if (N >= g0 && N <= g1) {
+    g.strokeStyle = '#7CFFB255'; g.setLineDash([4, 4]); g.beginPath(); g.moveTo(X(N) + .5, GM.t); g.lineTo(X(N) + .5, GM.t + ph); g.stroke(); g.setLineDash([]);
+    g.fillStyle = '#7CFFB2'; g.textAlign = 'left'; g.textBaseline = 'top'; g.fillText('reveal', X(N) + 4, GM.t + 2);
+  }
+  // data: a plain line when it fits, otherwise min/max per pixel column
+  if (n) {
+    g.strokeStyle = '#7CFFB2'; g.lineWidth = 1.5; g.beginPath();
+    if (n <= pw * 2) {
+      for (let i = 0; i < n; i++) { const x = X(tGen[i]), y = Y(pct(tDiff[i])); i ? g.lineTo(x, y) : g.moveTo(x, y); }
+    } else {
+      let col = -1, lo = 0, hi = 0, first = true;
+      const flush = () => { if (col < 0) return; const x = GM.l + col + .5; if (first) { g.moveTo(x, Y(hi)); first = false; } else g.lineTo(x, Y(hi)); g.lineTo(x, Y(lo)); };
+      for (let i = 0; i < n; i++) {
+        const c = Math.floor((X(tGen[i]) - GM.l)), v = pct(tDiff[i]);
+        if (c !== col) { flush(); col = c; lo = hi = v; } else { if (v < lo) lo = v; if (v > hi) hi = v; }
+      }
+      flush();
+    }
+    g.stroke();
+  }
+  g.strokeStyle = '#2a2d35'; g.lineWidth = 1; g.strokeRect(GM.l + .5, GM.t + .5, pw, ph);
+  if (forExport) {
+    g.fillStyle = '#e6e6e6'; g.textAlign = 'left'; g.textBaseline = 'top';
+    g.fillText(`Game of Life Painter · ${label.replace(/[\r\n]/g, ' ')} · ${C0}×${R0} board`, GM.l, 1);
+  }
+  $('gstats').textContent = gStats();
+  gDirty = false;
+}
+// hover readout
+gcv.addEventListener('pointermove', e => {
+  const tip = $('gtip'); if (!gScale || !tDiff.length) return (tip.style.display = 'none');
+  const b = gcv.getBoundingClientRect(), x = e.clientX - b.left;
+  const gv = Math.round(gScale.g0 + (x - GM.l) / gScale.pw * (gScale.g1 - gScale.g0));
+  const i = gv - tGen[0];
+  if (i < 0 || i >= tDiff.length || tGen[i] !== gv) return (tip.style.display = 'none');
+  tip.textContent = `gen ${gv}: ${pct(tDiff[i]).toFixed(4)}%`;
+  tip.style.display = 'block'; tip.style.left = Math.min(b.width - 150, x + 10) + 'px'; tip.style.top = '8px';
+});
+gcv.addEventListener('pointerleave', () => $('gtip').style.display = 'none');
+function save(name, blob) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }
+$('gcsv').onclick = () => save('life-painter-changes.csv', new Blob(['generation,percent_change\n' +
+  tGen.map((g, i) => `${g},${pct(tDiff[i]).toFixed(4)}`).join('\n') + '\n'], { type: 'text/csv' }));
+$('gtxt').onclick = () => {
+  const head = [`Game of Life Painter: change per generation`, `Source: ${label.replace(/[\r\n]/g, ' ')}`,
+    `Board: ${C0} x ${R0} cells (${tCells} cells, fixed edges), reveal at generation ${N}${blinking ? ', blink forever on' : ''}`,
+    `Stopped: ${tReason || 'by user (or still running)'}`, `Percent = cells that flipped since the previous generation / all cells x 100`, '',
+    'generation  percent_change'];
+  save('life-painter-changes.txt', new Blob([head.join('\n') + '\n' + tGen.map((g, i) => `${String(g).padStart(10)}  ${pct(tDiff[i]).toFixed(4).padStart(14)}`).join('\n') + '\n'], { type: 'text/plain' }));
+};
+$('gpng').onclick = () => { drawGraph(true); gcv.toBlob(b => { save('life-painter-changes.png', b); drawGraph(); }); };
+$('gfull').addEventListener('input', () => drawGraph());
+$('track').addEventListener('input', () => {
+  $('graph').hidden = !tracking();
+  if (tracking()) { tRing = [hashGrid(grid)]; tReason = ''; drawGraph(); }
+});
+// redraw the graph at most once per frame
+(function loop() { if (gDirty && !$('graph').hidden) drawGraph(); requestAnimationFrame(loop); })();
+
+// ---------- drawing with zoom ----------
+const cv = $('cv'), ctx = cv.getContext('2d');
+let img = null, view = null, viewStack = [];       // view = {x, y, w, h} in cells, (0,0) = top-left of the original area
+const fitPicture = () => { view = { x: 0, y: 0, w: C0, h: R0 }; };
+function draw() {
+  const avail = cv.parentElement.parentElement.clientWidth - 18, maxH = Math.max(260, innerHeight * 0.72);
+  let W = avail, H = Math.round(avail * view.h / view.w);
+  if (H > maxH) { H = Math.round(maxH); W = Math.max(1, Math.round(H * view.w / view.h)); }
+  if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; img = ctx.createImageData(W, H); }
+  const buf = new Uint32Array(img.data.buffer), ON = 0xFFB2FF7C;
+  buf.fill(0xFF000000);
+  const s = W / view.w, gap = s >= 4 ? 1 : 0;
+  const sx = c => Math.floor((c - ox - view.x) * s), sy = r => Math.floor((r - oy - view.y) * s);
+  const r0 = Math.max(0, Math.floor(view.y + oy)), r1 = Math.min(R, Math.ceil(view.y + view.h + oy));
+  const c0 = Math.max(0, Math.floor(view.x + ox)), c1 = Math.min(C, Math.ceil(view.x + view.w + ox));
+  for (let r = r0; r < r1; r++) {
+    const y0 = Math.max(0, sy(r)), y1 = Math.min(H, Math.max(sy(r) + 1, sy(r + 1) - gap));
+    for (let c = c0; c < c1; c++) if (grid[r * C + c]) {
+      const x0 = Math.max(0, sx(c)), x1 = Math.min(W, Math.max(sx(c) + 1, sx(c + 1) - gap));
+      for (let y = y0; y < y1; y++) buf.fill(ON, y * W + x0, y * W + x1);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  $('gen').textContent = `gen ${gen}` + (gen === N ? ' · reveal' : gen > N ? (blinking ? ' · blinking' : ' · after the reveal') : '');
+  const zoomed = view.x !== 0 || view.y !== 0 || view.w !== C0 || view.h !== R0;
+  $('zout').hidden = !viewStack.length; $('zfit').hidden = !zoomed;
+  $('cont').hidden = !!timer || gen < N;
+}
+
+// drag a box to zoom
+let drag = null;
+const rel = e => { const b = cv.getBoundingClientRect(); return [Math.max(0, Math.min(b.width, e.clientX - b.left)), Math.max(0, Math.min(b.height, e.clientY - b.top))]; };
+cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); const [x, y] = rel(e); drag = { x0: x, y0: y, x1: x, y1: y }; });
+cv.addEventListener('pointermove', e => {
+  if (!drag) return; [drag.x1, drag.y1] = rel(e);
+  const s = $('sel').style; s.display = 'block';
+  s.left = Math.min(drag.x0, drag.x1) + 'px'; s.top = Math.min(drag.y0, drag.y1) + 'px';
+  s.width = Math.abs(drag.x1 - drag.x0) + 'px'; s.height = Math.abs(drag.y1 - drag.y0) + 'px';
+});
+cv.addEventListener('pointerup', () => {
+  if (!drag) return; $('sel').style.display = 'none';
+  const k = view.w / cv.clientWidth, w = Math.abs(drag.x1 - drag.x0), h = Math.abs(drag.y1 - drag.y0);
+  if (w > 6 && h > 6) {
+    viewStack.push(view);
+    const nw = Math.max(6, w * k), nh = Math.max(6, h * k);
+    view = { x: view.x + Math.min(drag.x0, drag.x1) * k, y: view.y + Math.min(drag.y0, drag.y1) * k, w: nw, h: nh };
+    draw();
+  }
+  drag = null;
+});
+cv.addEventListener('dblclick', () => { if (viewStack.length) { view = viewStack.pop(); draw(); } });
+$('zout').onclick = () => { if (viewStack.length) { view = viewStack.pop(); draw(); } };
+$('zfit').onclick = () => { viewStack = []; fitPicture(); draw(); };
+
+function stop() { clearInterval(timer); timer = null; gDirty = true; $('play').textContent = '▶ Play'; if (grid && view) draw(); }
+function tick() {
+  if (tracking()) { const res = stepTracked(grid, R, C); grid = res.g; gen++; record(res); }
+  else { grid = step(grid, R, C); gen++; }
+  draw();
+  if (tracking() && tReason) { stop(); return; }           // board is repeating: nothing new will happen
+  if (gen === N && $('pause').checked) stop();
+}
 function play() {
   if (timer) return stop();
   $('play').textContent = '❚❚ Pause';
   timer = setInterval(tick, 1000 / $('speed').value);
+  $('cont').hidden = true;
 }
 
 // ---------- RLE ----------
@@ -461,9 +686,12 @@ function syncControls() {
 function build() {
   stop(); syncControls();
   if (tab === 'text') layoutText(); else layoutImage();
-  grid = seed; gen = 0; draw(); verify(); drawTiles();
-  $('size').textContent = (tab === 'image' ? `${bw}×${bh} px → ` : '') + `${C}×${R} cells`;
-  const text = rle();
+  const same = R === R0 && C === C0 && view;
+  R0 = R; C0 = C;
+  if (!same) { viewStack = []; fitPicture(); }      // same size (e.g. Scramble again): keep the zoom
+  verify(); const text = rle();                       // both use the seed-sized grid
+  resetWorld(); draw(); drawTiles();
+  $('size').textContent = (tab === 'image' ? `${bw}×${bh} px → ` : '') + `${C0}×${R0} cells`;
   $('rle').dataset.full = text;
   $('rle').textContent = text.length > 200000 ? text.slice(0, 200000) + '\n… (cut off here; use Download for the full file)' : text;
   $('rlesize').textContent = `${Math.max(1, Math.round(text.length / 1024))} KB`;
@@ -502,7 +730,8 @@ $('txt').addEventListener('input', rebuild);
 $('build').onclick = build;
 $('play').onclick = play;
 $('step').onclick = () => { stop(); tick(); };
-$('reset').onclick = () => { stop(); grid = seed; gen = 0; draw(); };
+$('reset').onclick = () => { stop(); resetWorld(); draw(); };
+$('cont').onclick = () => { if (!timer) play(); };
 $('speed').oninput = () => { if (timer) { stop(); play(); } };
 $('copy').onclick = async e => {
   try { await navigator.clipboard.writeText($('rle').dataset.full); e.target.textContent = 'Copied ✓'; }
@@ -514,7 +743,7 @@ $('dl').onclick = () => {
   a.href = URL.createObjectURL(new Blob([$('rle').dataset.full], { type: 'text/plain' }));
   a.download = 'life-painter.rle'; a.click();
 };
-addEventListener('resize', () => grid && draw());
+addEventListener('resize', () => { if (grid) draw(); if (!$('graph').hidden) drawGraph(); });
 
 fillDitherMenu(); source = sampleImage(); $('dither').value = 'thr'; $('serpWrap').hidden = true;
 build();
